@@ -1,18 +1,20 @@
 (ns metabase.integrations.google
-  (:require [cheshire.core :as json]
-            [clj-http.client :as http]
-            [clojure.string :as str]
-            [clojure.tools.logging :as log]
-            [metabase.api.common :as api]
-            [metabase.integrations.google.interface :as google.i]
-            [metabase.models.setting :as setting :refer [defsetting]]
-            [metabase.models.setting.multi-setting :refer [define-multi-setting-impl]]
-            [metabase.models.user :as user :refer [User]]
-            [metabase.plugins.classloader :as classloader]
-            [metabase.util :as u]
-            [metabase.util.i18n :refer [deferred-tru trs tru]]
-            [schema.core :as s]
-            [toucan.db :as db]))
+  (:require
+   [cheshire.core :as json]
+   [clj-http.client :as http]
+   [clojure.string :as str]
+   [clojure.tools.logging :as log]
+   [metabase.api.common :as api]
+   [metabase.integrations.google.interface :as google.i]
+   [metabase.models.setting :as setting :refer [defsetting]]
+   [metabase.models.setting.multi-setting
+    :refer [define-multi-setting-impl]]
+   [metabase.models.user :as user :refer [User]]
+   [metabase.plugins.classloader :as classloader]
+   [metabase.util :as u]
+   [metabase.util.i18n :refer [deferred-tru trs tru]]
+   [schema.core :as s]
+   [toucan.db :as db]))
 
 ;; Load EE implementation if available
 (u/ignore-exceptions (classloader/require 'metabase-enterprise.enhancements.integrations.google))
@@ -34,10 +36,20 @@
                    (setting/set-value-of-type! :string :google-auth-client-id nil)
                    (setting/set-value-of-type! :boolean :google-auth-enabled false)))))
 
+(defsetting google-auth-configured
+  (deferred-tru "Is Google Sign-In configured?")
+  :type   :boolean
+  :setter :none
+  :getter (fn [] (boolean (google-auth-client-id))))
+
 (defsetting google-auth-enabled
   (deferred-tru "Is Google Sign-in currently enabled?")
   :visibility :public
   :type       :boolean
+  :getter     (fn []
+                (if-some [value (setting/get-value-of-type :boolean :google-auth-enabled)]
+                  value
+                  (boolean (google-auth-client-id))))
   :setter     (fn [new-value]
                 (if-let [new-value (boolean new-value)]
                   (if-not (google-auth-client-id)

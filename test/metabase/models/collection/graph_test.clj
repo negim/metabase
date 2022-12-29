@@ -1,22 +1,26 @@
 (ns metabase.models.collection.graph-test
-  (:require [clojure.java.jdbc :as jdbc]
-            [clojure.test :refer :all]
-            [medley.core :as m]
-            [metabase.api.common :refer [*current-user-id*]]
-            [metabase.models :refer [App User]]
-            [metabase.models.collection :as collection :refer [Collection]]
-            [metabase.models.collection-permission-graph-revision :as c-perm-revision
-             :refer [CollectionPermissionGraphRevision]]
-            [metabase.models.collection.graph :as graph]
-            [metabase.models.permissions :as perms]
-            [metabase.models.permissions-group :as perms-group :refer [PermissionsGroup]]
-            [metabase.test :as mt]
-            [metabase.test.fixtures :as fixtures]
-            [metabase.util :as u]
-            [metabase.util.schema :as su]
-            [schema.core :as s]
-            [toucan.db :as db]
-            [toucan.util.test :as tt]))
+  (:require
+   [clojure.java.jdbc :as jdbc]
+   [clojure.test :refer :all]
+   [medley.core :as m]
+   [metabase.api.common :refer [*current-user-id*]]
+   [metabase.models :refer [User]]
+   [metabase.models.collection :as collection :refer [Collection]]
+   [metabase.models.collection-permission-graph-revision
+    :as c-perm-revision
+    :refer [CollectionPermissionGraphRevision]]
+   [metabase.models.collection.graph :as graph]
+   [metabase.models.permissions :as perms]
+   [metabase.models.permissions-group
+    :as perms-group
+    :refer [PermissionsGroup]]
+   [metabase.test :as mt]
+   [metabase.test.fixtures :as fixtures]
+   [metabase.util :as u]
+   [metabase.util.schema :as su]
+   [schema.core :as s]
+   [toucan.db :as db]
+   [toucan.util.test :as tt]))
 
 (use-fixtures :once (fixtures/initialize :db :test-users :test-users-personal-collections))
 
@@ -434,12 +438,3 @@
     (with-n-temp-users-with-personal-collections 2000
       (is (>= (db/count Collection :personal_owner_id [:not= nil]) 2000))
       (is (map? (graph/graph))))))
-
-(deftest modify-perms-for-app-collections-test
-  (testing "that we cannot modify perms for app collections"
-    (mt/with-temp* [Collection [{coll-id :id}]
-                    App [_app {:collection_id coll-id}]]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Cannot set app permissions using this endpoint"
-                            (graph/update-graph! (assoc-in (graph/graph)
-                                                           [:groups (u/the-id (perms-group/all-users)) coll-id]
-                                                           :read)))))))

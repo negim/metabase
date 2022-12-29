@@ -1,9 +1,9 @@
 import { GET, PUT, POST, DELETE } from "metabase/lib/api";
 import { IS_EMBED_PREVIEW } from "metabase/lib/embed";
 
-import Question from "metabase-lib/lib/Question";
-import { getPivotColumnSplit } from "metabase-lib/lib/queries/utils/pivot";
-import { injectTableMetadata } from "metabase-lib/lib/metadata/utils/tables";
+import Question from "metabase-lib/Question";
+import { getPivotColumnSplit } from "metabase-lib/queries/utils/pivot";
+import { injectTableMetadata } from "metabase-lib/metadata/utils/tables";
 
 // use different endpoints for embed previews
 const embedBase = IS_EMBED_PREVIEW ? "/api/preview_embed" : "/api/embed";
@@ -153,15 +153,6 @@ export const CollectionsApi = {
   update: PUT("/api/collection/:id"),
   graph: GET("/api/collection/graph"),
   updateGraph: PUT("/api/collection/graph"),
-};
-
-export const DataAppsApi = {
-  list: GET("/api/app"),
-  create: POST("/api/app"),
-  update: PUT("/api/app/:id"),
-
-  scaffoldNewApp: POST("/api/app/scaffold"),
-  scaffoldNewPages: POST("/api/app/:id/scaffold"),
 };
 
 const PIVOT_PUBLIC_PREFIX = "/api/public/pivot/";
@@ -474,22 +465,3 @@ function setParamsEndpoints(prefix) {
     prefix + "/dashboard/:dashId/params/:paramId/search/:query",
   );
 }
-
-export const ActionsApi = {
-  list: GET("/api/action"),
-  create: POST("/api/action/row/create"),
-  update: POST("/api/action/row/update"),
-  delete: POST("/api/action/row/delete"),
-  bulkUpdate: POST("/api/action/bulk/update/:tableId"),
-  bulkDelete: POST("/api/action/bulk/delete/:tableId"),
-  execute: POST(
-    "/api/dashboard/:dashboardId/dashcard/:dashcardId/execute/:slug",
-  ),
-};
-
-export const ModelActionsApi = {
-  connectActionToModel: POST("/api/model-action"),
-  createImplicitAction: POST("/api/model-action"),
-  updateConnection: PUT("/api/model-action/:id"),
-  disconnectActionFromModel: POST("/api/model-action"),
-};

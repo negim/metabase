@@ -1,6 +1,7 @@
 (ns metabase.query-processor.middleware.desugar-test
-  (:require [clojure.test :refer :all]
-            [metabase.query-processor.middleware.desugar :as desugar]))
+  (:require
+   [clojure.test :refer :all]
+   [metabase.query-processor.middleware.desugar :as desugar]))
 
 ;; actual desugaring logic and tests are in [[metabase.mbql.util-test]]
 (deftest ^:parallel e2e-test
@@ -15,8 +16,8 @@
                                      [:relative-datetime -1 :day]]
                                     [:!= [:field 3 nil] "(not set)"]
                                     [:!= [:field 3 nil] "url"]
-                                    [:> [:temporal-extract [:field 4 nil] :year] 2004]]
-                     :expressions  {"year" [:temporal-extract [:field 4 nil] :year]}
+                                    [:> [:temporal-extract [:field 4 nil] :year-of-era] 2004]]
+                     :expressions  {"year" [:temporal-extract [:field 4 nil] :year-of-era]}
                      :aggregation  [[:share [:and
                                              [:= [:field 1 nil] "Run Query"]
                                              [:between

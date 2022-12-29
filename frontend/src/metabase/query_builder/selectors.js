@@ -14,8 +14,6 @@ import {
 } from "metabase/visualizations";
 import { MetabaseApi } from "metabase/services";
 import { getComputedSettingsForSeries } from "metabase/visualizations/lib/settings/visualization";
-import { getCardUiParameters } from "metabase/parameters/utils/cards";
-import { normalizeParameterValue } from "metabase/parameters/utils/parameter-values";
 
 import Databases from "metabase/entities/databases";
 import Timelines from "metabase/entities/timelines";
@@ -34,11 +32,16 @@ import {
 import ObjectMode from "metabase/modes/components/modes/ObjectMode";
 
 import { LOAD_COMPLETE_FAVICON } from "metabase/hoc/Favicon";
-import { isPK } from "metabase-lib/lib/types/utils/isa";
-import Mode from "metabase-lib/lib/Mode";
-import NativeQuery from "metabase-lib/lib/queries/NativeQuery";
-import Question from "metabase-lib/lib/Question";
-import { isAdHocModelQuestion } from "metabase-lib/lib/metadata/utils/models";
+import { getCardUiParameters } from "metabase-lib/parameters/utils/cards";
+import {
+  normalizeParameters,
+  normalizeParameterValue,
+} from "metabase-lib/parameters/utils/parameter-values";
+import { isPK } from "metabase-lib/types/utils/isa";
+import Mode from "metabase-lib/Mode";
+import NativeQuery from "metabase-lib/queries/NativeQuery";
+import Question from "metabase-lib/Question";
+import { isAdHocModelQuestion } from "metabase-lib/metadata/utils/models";
 
 export const getUiControls = state => state.qb.uiControls;
 const getQueryStatus = state => state.qb.queryStatus;
@@ -167,9 +170,6 @@ export const getPKRowIndexMap = createSelector(
   },
 );
 
-// get instance settings, used for determining whether to display certain actions
-export const getSettings = state => state.settings.values;
-
 export const getIsNew = state => state.qb.card && !state.qb.card.id;
 
 export const getQueryStartTime = state => state.qb.queryStartTime;
@@ -276,6 +276,10 @@ const getNextRunParameterValues = createSelector([getParameters], parameters =>
       normalizeParameterValue(parameter.type, parameter.value),
     )
     .filter(p => p !== undefined),
+);
+
+const getNextRunParameters = createSelector([getParameters], parameters =>
+  normalizeParameters(parameters),
 );
 
 export const getQueryBuilderMode = createSelector(
@@ -945,3 +949,25 @@ export const getAutocompleteResultsFn = state => {
     return apiCall;
   };
 };
+
+export const getDataReferenceStack = createSelector(
+  [getUiControls, getDatabaseId],
+  (uiControls, dbId) =>
+    uiControls.dataReferenceStack
+      ? uiControls.dataReferenceStack
+      : dbId
+      ? [{ type: "database", item: { id: dbId } }]
+      : [],
+);
+
+export const getNativeQueryFn = createSelector(
+  [getNextRunDatasetQuery, getNextRunParameters],
+  (datasetQuery, parameters) => {
+    let lastResult = undefined;
+
+    return async () => {
+      lastResult ??= await MetabaseApi.native({ ...datasetQuery, parameters });
+      return lastResult;
+    };
+  },
+);

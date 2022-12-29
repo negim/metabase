@@ -3,7 +3,7 @@ import * as Urls from "metabase/lib/urls";
 import { coerceCollectionId } from "metabase/collections/utils";
 
 import type { Dashboard } from "metabase-types/api";
-import type Question from "metabase-lib/lib/Question";
+import type Question from "metabase-lib/Question";
 
 import { SelectedItem } from "./types";
 
@@ -30,8 +30,6 @@ function getSelectedItems({
   const isQuestionPath = pathname.startsWith("/question");
   const isModelPath = pathname.startsWith("/model");
   const isModelDetailPath = isModelPath && pathname.endsWith("/detail");
-  const isDataAppPath = Urls.isDataAppPath(pathname);
-  const isDataAppPagePath = Urls.isDataAppPagePath(pathname);
   const isDashboardPath = pathname.startsWith("/dashboard");
 
   if (isCollectionPath) {
@@ -39,22 +37,6 @@ function getSelectedItems({
       {
         id: isUsersCollectionPath ? "users" : Urls.extractCollectionId(slug),
         type: "collection",
-      },
-    ];
-  }
-  if (isDataAppPagePath) {
-    return [
-      {
-        id: parseInt(params.pageId as string),
-        type: "data-app-page",
-      },
-    ];
-  }
-  if (isDataAppPath) {
-    return [
-      {
-        id: Urls.extractEntityId(slug),
-        type: "data-app",
       },
     ];
   }

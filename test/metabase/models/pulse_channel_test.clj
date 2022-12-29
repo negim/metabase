@@ -1,16 +1,19 @@
 (ns metabase.models.pulse-channel-test
-  (:require [clojure.test :refer :all]
-            [medley.core :as m]
-            [metabase.models.collection :refer [Collection]]
-            [metabase.models.pulse :refer [Pulse]]
-            [metabase.models.pulse-channel :as pulse-channel :refer [PulseChannel]]
-            [metabase.models.pulse-channel-recipient :refer [PulseChannelRecipient]]
-            [metabase.models.serialization.hash :as serdes.hash]
-            [metabase.models.user :refer [User]]
-            [metabase.test :as mt]
-            [metabase.util :as u]
-            [toucan.db :as db]
-            [toucan.hydrate :refer [hydrate]]))
+  (:require
+   [clojure.test :refer :all]
+   [medley.core :as m]
+   [metabase.models.collection :refer [Collection]]
+   [metabase.models.pulse :refer [Pulse]]
+   [metabase.models.pulse-channel :as pulse-channel :refer [PulseChannel]]
+   [metabase.models.pulse-channel-recipient :refer [PulseChannelRecipient]]
+   [metabase.models.serialization.hash :as serdes.hash]
+   [metabase.models.user :refer [User]]
+   [metabase.test :as mt]
+   [metabase.util :as u]
+   [toucan.db :as db]
+   [toucan.hydrate :refer [hydrate]])
+  (:import
+   (java.time LocalDateTime)))
 
 ;; Test out our predicate functions
 
@@ -454,11 +457,13 @@
 
 (deftest identity-hash-test
   (testing "Pulse channel hashes are composed of the pulse's hash, the channel type, and the details and the collection hash"
-    (mt/with-temp* [Collection   [coll  {:name "field-db" :location "/"}]
-                    Pulse        [pulse {:name "my pulse" :collection_id (:id coll)}]
-                    PulseChannel [chan  {:pulse_id     (:id pulse)
-                                         :channel_type :email
-                                         :details      {:emails ["cam@test.com"]}}]]
-      (is (= "ab5e6ff0"
-             (serdes.hash/raw-hash [(serdes.hash/identity-hash pulse) :email {:emails ["cam@test.com"]}])
-             (serdes.hash/identity-hash chan))))))
+    (let [now (LocalDateTime/of 2022 9 1 12 34 56)]
+      (mt/with-temp* [Collection   [coll  {:name "field-db" :location "/" :created_at now}]
+                      Pulse        [pulse {:name "my pulse" :collection_id (:id coll) :created_at now}]
+                      PulseChannel [chan  {:pulse_id     (:id pulse)
+                                           :channel_type :email
+                                           :details      {:emails ["cam@test.com"]}
+                                           :created_at   now}]]
+        (is (= "2f5f0269"
+               (serdes.hash/raw-hash [(serdes.hash/identity-hash pulse) :email {:emails ["cam@test.com"]} now])
+               (serdes.hash/identity-hash chan)))))))

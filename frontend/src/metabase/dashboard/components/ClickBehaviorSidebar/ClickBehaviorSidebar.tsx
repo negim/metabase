@@ -6,9 +6,6 @@ import { usePrevious } from "metabase/hooks/use-previous";
 
 import Sidebar from "metabase/dashboard/components/Sidebar";
 
-import { isMappedExplicitActionButton } from "metabase/writeback/utils";
-
-import type { UiParameter } from "metabase/parameters/types";
 import type {
   Dashboard,
   DashboardOrderedCard,
@@ -19,9 +16,10 @@ import type {
   DatasetColumn,
 } from "metabase-types/api";
 import { isTableDisplay } from "metabase/lib/click-behavior";
-import { clickBehaviorIsValid } from "metabase-lib/lib/parameters/utils/click-behavior";
+import type { UiParameter } from "metabase-lib/parameters/types";
+import { clickBehaviorIsValid } from "metabase-lib/parameters/utils/click-behavior";
 
-import { getColumnKey } from "metabase-lib/lib/queries/utils/get-column-key";
+import { getColumnKey } from "metabase-lib/queries/utils/get-column-key";
 import { getClickBehaviorForColumn } from "./utils";
 import ClickBehaviorSidebarContent from "./ClickBehaviorSidebarContent";
 import ClickBehaviorSidebarHeader from "./ClickBehaviorSidebarHeader";
@@ -158,10 +156,7 @@ function ClickBehaviorSidebar({
   ]);
 
   useOnMount(() => {
-    if (
-      !isMappedExplicitActionButton(dashcard) &&
-      shouldShowTypeSelector(clickBehavior)
-    ) {
+    if (shouldShowTypeSelector(clickBehavior)) {
       setTypeSelectorVisible(true);
     }
     if (dashcard) {
@@ -191,9 +186,7 @@ function ClickBehaviorSidebar({
     <Sidebar
       onClose={hideClickBehaviorSidebar}
       onCancel={handleCancel}
-      closeIsDisabled={
-        !isValidClickBehavior && !isMappedExplicitActionButton(dashcard)
-      }
+      closeIsDisabled={!isValidClickBehavior}
     >
       <ClickBehaviorSidebarHeader
         dashcard={dashcard}

@@ -33,10 +33,11 @@ const BUTTON_VARIANTS = [
   "fullWidth",
 ] as const;
 
-interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   as?: ElementType;
   className?: string;
   to?: string;
+  tooltip?: string; // available when using as={Link}
   href?: string;
 
   icon?: string | ReactNode;
@@ -78,7 +79,7 @@ const BaseButton = forwardRef(function BaseButton(
     labelBreakpoint,
     children,
     ...props
-  }: Props,
+  }: ButtonProps,
   ref: Ref<HTMLButtonElement>,
 ) {
   const variantClasses = BUTTON_VARIANTS.filter(variant => props[variant]).map(

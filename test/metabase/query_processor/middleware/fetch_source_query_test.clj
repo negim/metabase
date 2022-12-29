@@ -1,15 +1,17 @@
 (ns metabase.query-processor.middleware.fetch-source-query-test
-  (:require [cheshire.core :as json]
-            [clojure.set :as set]
-            [clojure.test :refer :all]
-            [metabase.mbql.schema :as mbql.s]
-            [metabase.models :refer [Card]]
-            [metabase.query-processor :as qp]
-            [metabase.query-processor.middleware.fetch-source-query :as fetch-source-query]
-            [metabase.test :as mt]
-            [metabase.util :as u]
-            [schema.core :as s]
-            [toucan.db :as db]))
+  (:require
+   [cheshire.core :as json]
+   [clojure.set :as set]
+   [clojure.test :refer :all]
+   [metabase.mbql.schema :as mbql.s]
+   [metabase.models :refer [Card]]
+   [metabase.query-processor :as qp]
+   [metabase.query-processor.middleware.fetch-source-query
+    :as fetch-source-query]
+   [metabase.test :as mt]
+   [metabase.util :as u]
+   [schema.core :as s]
+   [toucan.db :as db]))
 
 (defn- resolve-card-id-source-tables [query]
   (:pre (mt/test-qp-middleware fetch-source-query/resolve-card-id-source-tables query)))
@@ -123,10 +125,7 @@
                   (qp/query->expected-cols (mt/mbql-query venues)))
                  (assoc-in [:query :source-query :source-metadata]
                            (mt/derecordize (qp/query->expected-cols (mt/mbql-query venues))))
-                 (assoc :info {:card-id (u/the-id card-2)})
-                 (update-in [:query :source-metadata] (fn [fields]
-                                                        (mapv #(assoc-in % [:options :nested/outer] true)
-                                                              fields))))
+                 (assoc :info {:card-id (u/the-id card-2)}))
              (resolve-card-id-source-tables
               (wrap-inner-query
                {:source-table (str "card__" (u/the-id card-2)), :limit 25}))))))

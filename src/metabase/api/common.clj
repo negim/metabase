@@ -1,20 +1,25 @@
 (ns metabase.api.common
   "Dynamic variables and utility functions/macros for writing API functions."
-  (:require [clojure.spec.alpha :as s]
-            [clojure.string :as str]
-            [clojure.tools.logging :as log]
-            [compojure.core :as compojure]
-            [honeysql.types :as htypes]
-            [medley.core :as m]
-            [metabase.api.common.internal
-             :refer
-             [add-route-param-regexes auto-parse route-dox route-fn-name validate-params wrap-response-if-needed]]
-            [metabase.models.interface :as mi]
-            [metabase.util :as u]
-            [metabase.util.i18n :as i18n :refer [deferred-tru tru]]
-            [metabase.util.schema :as su]
-            [schema.core :as schema]
-            [toucan.db :as db]))
+  (:require
+   [clojure.spec.alpha :as s]
+   [clojure.string :as str]
+   [clojure.tools.logging :as log]
+   [compojure.core :as compojure]
+   [honeysql.types :as htypes]
+   [medley.core :as m]
+   [metabase.api.common.internal
+    :refer [add-route-param-regexes
+            auto-parse
+            route-dox
+            route-fn-name
+            validate-params
+            wrap-response-if-needed]]
+   [metabase.models.interface :as mi]
+   [metabase.util :as u]
+   [metabase.util.i18n :as i18n :refer [deferred-tru tru]]
+   [metabase.util.schema :as su]
+   [schema.core :as schema]
+   [toucan.db :as db]))
 
 (declare check-403 check-404)
 
@@ -161,12 +166,6 @@
   [arg]
   (check arg generic-400))
 
-(defmacro let-400
-  "Bind a form as with `let`; throw a 400 if it is `nil` or `false`."
-  {:style/indent 1}
-  [& body]
-  `(do-api-let ~generic-400 ~@body))
-
 ;; #### GENERIC 404 RESPONSE HELPERS
 (def ^:private generic-404
   [404 (deferred-tru "Not found.")])
@@ -192,12 +191,6 @@
   [arg]
   (check arg (generic-403)))
 
-(defmacro let-403
-  "Bind a form as with `let`; throw a 403 if it is `nil` or `false`."
-  {:style/indent 1}
-  [bindings & body]
-  `(do-api-let (generic-403) ~bindings ~@body))
-
 (defn throw-403
   "Throw a generic 403 (no permissions) error response."
   ([]
@@ -215,12 +208,6 @@
   "Throw a `500` if `arg` is `false` or `nil`, otherwise return as-is."
   [arg]
   (check arg generic-500))
-
-(defmacro let-500
-  "Bind a form as with `let`; throw a 500 if it is `nil` or `false`."
-  {:style/indent 1}
-  [bindings & body]
-  `(do-api-let ~generic-500 ~bindings ~@body))
 
 (def generic-204-no-content
   "A 'No Content' response for `DELETE` endpoints to return."
@@ -523,18 +510,9 @@
          (reconcile-position-for-collection! old-collection-id old-position nil)
          (reconcile-position-for-collection! new-collection-id nil new-position))))))
 
-(defmacro catch-and-raise
-  "Catches exceptions thrown in `body` and passes them along to the `raise` function. Meant for writing async
-  endpoints.
-
-  You only need to `raise` Exceptions that happen outside the initial thread of the API endpoint function; things like
-  normal permissions checks are usually done within the same thread that called the endpoint, meaning the middleware
-  that catches Exceptions will automatically handle them."
-  {:style/indent 1}
-  ;; using 2+ args so we can catch cases where people forget to pass in `raise`
-  [raise body & more]
-  `(try
-     ~body
-     ~@more
-     (catch Throwable e#
-       (~raise e#))))
+(defn bit->boolean
+  "Coerce a bit returned by some MySQL/MariaDB versions in some situations to Boolean."
+  [v]
+  (if (number? v)
+    (not (zero? v))
+    v))

@@ -1,18 +1,19 @@
 (ns metabase.related-test
-  (:require [clojure.java.jdbc :as jdbc]
-            [clojure.test :refer :all]
-            [medley.core :as m]
-            [metabase.models :refer [Card Collection Metric Segment]]
-            [metabase.related :as related]
-            [metabase.sync :as sync]
-            [metabase.test :as mt]
-            [metabase.test.data.one-off-dbs :as one-off-dbs]
-            [toucan.db :as db]))
+  (:require
+   [clojure.java.jdbc :as jdbc]
+   [clojure.test :refer :all]
+   [medley.core :as m]
+   [metabase.models :refer [Card Collection Metric Segment]]
+   [metabase.related :as related]
+   [metabase.sync :as sync]
+   [metabase.test :as mt]
+   [metabase.test.data.one-off-dbs :as one-off-dbs]
+   [toucan.db :as db]))
 
 (deftest collect-context-bearing-forms-test
   (is (= #{[:field 1 nil] [:metric 1] [:field 2 nil] [:segment 1]}
          (#'related/collect-context-bearing-forms [[:> [:field 1 nil] 3]
-                                                   ["and" [:= ["FIELD-ID" 2] 2]
+                                                   ["and" [:= ["field" 2 nil] 2]
                                                     ["segment" 1]]
                                                    [:metric 1]]))))
 

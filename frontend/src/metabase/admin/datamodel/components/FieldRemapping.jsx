@@ -6,19 +6,22 @@ import _ from "underscore";
 
 import Select from "metabase/core/components/Select";
 import PopoverWithTrigger from "metabase/components/PopoverWithTrigger";
-import InputBlurChange from "metabase/components/InputBlurChange";
 import ButtonWithStatus from "metabase/components/ButtonWithStatus";
 
 import * as MetabaseAnalytics from "metabase/lib/analytics";
 
-import Dimension, { FieldDimension } from "metabase-lib/lib/Dimension";
-import { isEntityName, isFK } from "metabase-lib/lib/types/utils/isa";
+import { isEntityName, isFK } from "metabase-lib/types/utils/isa";
+import {
+  hasSourceField,
+  getFieldTargetId,
+} from "metabase-lib/queries/utils/field-ref";
 import SelectSeparator from "../components/SelectSeparator";
 import {
   FieldMappingContainer,
   FieldMappingRoot,
   FieldSelectButton,
   ForeignKeyList,
+  FieldValueMappingInput,
 } from "./FieldRemapping.styled";
 
 const MAP_OPTIONS = {
@@ -185,9 +188,7 @@ export default class FieldRemapping extends React.Component {
 
     this.clearEditingStates();
 
-    // TODO Atte Keinänen 7/10/17: Use Dimension class when migrating to metabase-lib
-    const dimension = Dimension.parseMBQL(foreignKeyClause);
-    if (dimension && dimension instanceof FieldDimension && dimension.fk()) {
+    if (hasSourceField(foreignKeyClause)) {
       MetabaseAnalytics.trackStructEvent(
         "Data Model",
         "Update FK Remapping Target",
@@ -197,7 +198,7 @@ export default class FieldRemapping extends React.Component {
         {
           type: "external",
           name: field.display_name,
-          human_readable_field_id: dimension.field().id,
+          human_readable_field_id: getFieldTargetId(foreignKeyClause),
         },
       );
 
@@ -441,8 +442,8 @@ export class FieldValueMapping extends React.Component {
     return (
       <div className="flex align-center">
         <h3>{original}</h3>
-        <InputBlurChange
-          className="AdminInput input ml-auto"
+        <FieldValueMappingInput
+          className="ml-auto"
           value={mapped}
           onChange={this.onInputChange}
           placeholder={t`Enter value`}

@@ -1,8 +1,9 @@
 (ns metabase-enterprise.sandbox.api.table-test
-  (:require [clojure.string :as str]
-            [clojure.test :refer :all]
-            [metabase-enterprise.sandbox.test-util :as mt.tu]
-            [metabase.test :as mt]))
+  (:require
+   [clojure.string :as str]
+   [clojure.test :refer :all]
+   [metabase-enterprise.sandbox.test-util :as mt.tu]
+   [metabase.test :as mt]))
 
 (def ^:private all-columns
   #{"CATEGORY_ID" "ID" "LATITUDE" "LONGITUDE" "NAME" "PRICE"})
@@ -17,7 +18,7 @@
                   (set (map (comp str/upper-case :name) fields))
                   response)))]
       (mt/with-gtaps {:gtaps      {:venues
-                                   {:remappings {:cat [:variable [:field-id (mt/id :venues :category_id)]]}
+                                   {:remappings {:cat [:variable [:field (mt/id :venues :category_id) nil]]}
                                     :query      (mt.tu/restricted-column-query (mt/id))}}
                       :attributes {:cat 50}}
         (testing "Users with restricted access to the columns of a table should only see columns included in the GTAP question"
@@ -31,7 +32,7 @@
       (testing (str "If a GTAP has a question, but that question doesn't include a clause to restrict the columns that "
                     "are returned, all fields should be returned")
         (mt/with-gtaps {:gtaps      {:venues {:query      (mt/mbql-query venues)
-                                              :remappings {:cat [:variable [:field-id (mt/id :venues :category_id)]]}}}
+                                              :remappings {:cat [:variable [:field (mt/id :venues :category_id) nil]]}}}
                         :attributes {:cat 50}}
           (is (= all-columns
                  (field-names :rasta))))))))

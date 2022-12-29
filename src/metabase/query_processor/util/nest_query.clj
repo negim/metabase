@@ -5,15 +5,16 @@
 
    (This namespace is here rather than in the shared MBQL lib because it relies on other QP-land utils like the QP
   refs stuff.)"
-  (:require [clojure.walk :as walk]
-            [medley.core :as m]
-            [metabase.api.common :as api]
-            [metabase.mbql.util :as mbql.u]
-            [metabase.plugins.classloader :as classloader]
-            [metabase.query-processor.middleware.annotate :as annotate]
-            [metabase.query-processor.store :as qp.store]
-            [metabase.query-processor.util.add-alias-info :as add]
-            [metabase.util :as u]))
+  (:require
+   [clojure.walk :as walk]
+   [medley.core :as m]
+   [metabase.api.common :as api]
+   [metabase.mbql.util :as mbql.u]
+   [metabase.plugins.classloader :as classloader]
+   [metabase.query-processor.middleware.annotate :as annotate]
+   [metabase.query-processor.store :as qp.store]
+   [metabase.query-processor.util.add-alias-info :as add]
+   [metabase.util :as u]))
 
 (defn- joined-fields [inner-query]
   (m/distinct-by
@@ -74,8 +75,8 @@
 
     ;; mark all Fields at the new top level as `::outer-select` so QP implementations know not to apply coercion or
     ;; whatever to them a second time.
-    [:field _id-or-name (_opts :guard (every-pred :temporal-unit (complement :nested/outer)))]
-    (recur (mbql.u/assoc-field-options &match :nested/outer true))
+    [:field _id-or-name (_opts :guard (every-pred :temporal-unit (complement ::outer-select)))]
+    (recur (mbql.u/update-field-options &match assoc ::outer-select true))
 
     [:field id-or-name (opts :guard :join-alias)]
     (let [{::add/keys [desired-alias]} (mbql.u/match-one (:source-query query)

@@ -1,16 +1,17 @@
 (ns metabase.models.on-demand-test
   "Tests for On-Demand FieldValues updating behavior for Cards and Dashboards."
-  (:require [clojure.test :refer :all]
-            [metabase.models.card :refer [Card]]
-            [metabase.models.dashboard :as dashboard :refer [Dashboard]]
-            [metabase.models.database :refer [Database]]
-            [metabase.models.field :as field :refer [Field]]
-            [metabase.models.field-values :as field-values]
-            [metabase.models.table :refer [Table]]
-            [metabase.test :as mt]
-            [metabase.test.data :as data]
-            [metabase.util :as u]
-            [toucan.db :as db]))
+  (:require
+   [clojure.test :refer :all]
+   [metabase.models.card :refer [Card]]
+   [metabase.models.dashboard :as dashboard :refer [Dashboard]]
+   [metabase.models.database :refer [Database]]
+   [metabase.models.field :as field :refer [Field]]
+   [metabase.models.field-values :as field-values]
+   [metabase.models.table :refer [Table]]
+   [metabase.test :as mt]
+   [metabase.test.data :as data]
+   [metabase.util :as u]
+   [toucan.db :as db]))
 
 (defn- do-with-mocked-field-values-updating
   "Run F the function responsible for updating FieldValues bound to a mock function that instead just records the names
@@ -160,7 +161,7 @@
 
 (defn- parameter-mappings-for-card-and-field [card-or-id field-or-id]
   [{:card_id (u/the-id card-or-id)
-    :target  [:dimension [:field-id (u/the-id field-or-id)]]}])
+    :target  [:dimension [:field (u/the-id field-or-id) nil]]}])
 
 (defn- add-dashcard-with-parameter-mapping! [dashboard-or-id card-or-id field-or-id]
   (dashboard/add-dashcard! dashboard-or-id card-or-id

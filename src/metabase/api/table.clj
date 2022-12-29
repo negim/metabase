@@ -1,28 +1,29 @@
 (ns metabase.api.table
   "/api/table endpoints."
-  (:require [clojure.tools.logging :as log]
-            [compojure.core :refer [GET POST PUT]]
-            [medley.core :as m]
-            [metabase.api.common :as api]
-            [metabase.driver :as driver]
-            [metabase.driver.util :as driver.u]
-            [metabase.models.card :refer [Card]]
-            [metabase.models.field :refer [Field]]
-            [metabase.models.field-values :as field-values :refer [FieldValues]]
-            [metabase.models.interface :as mi]
-            [metabase.models.table :as table :refer [Table]]
-            [metabase.related :as related]
-            [metabase.sync :as sync]
-            [metabase.sync.concurrent :as sync.concurrent]
-            #_:clj-kondo/ignore
-            [metabase.sync.field-values :as sync.field-values]
-            [metabase.types :as types]
-            [metabase.util :as u]
-            [metabase.util.i18n :refer [deferred-tru trs tru]]
-            [metabase.util.schema :as su]
-            [schema.core :as s]
-            [toucan.db :as db]
-            [toucan.hydrate :refer [hydrate]]))
+  (:require
+   [clojure.tools.logging :as log]
+   [compojure.core :refer [GET POST PUT]]
+   [medley.core :as m]
+   [metabase.api.common :as api]
+   [metabase.driver :as driver]
+   [metabase.driver.util :as driver.u]
+   [metabase.models.card :refer [Card]]
+   [metabase.models.field :refer [Field]]
+   [metabase.models.field-values :as field-values :refer [FieldValues]]
+   [metabase.models.interface :as mi]
+   [metabase.models.table :as table :refer [Table]]
+   [metabase.related :as related]
+   [metabase.sync :as sync]
+   [metabase.sync.concurrent :as sync.concurrent]
+   #_:clj-kondo/ignore
+   [metabase.sync.field-values :as sync.field-values]
+   [metabase.types :as types]
+   [metabase.util :as u]
+   [metabase.util.i18n :refer [deferred-tru trs]]
+   [metabase.util.schema :as su]
+   [schema.core :as s]
+   [toucan.db :as db]
+   [toucan.hydrate :refer [hydrate]]))
 
 (def ^:private TableVisibilityType
   "Schema for a valid table visibility type."
@@ -305,8 +306,8 @@
    include_hidden_fields (s/maybe su/BooleanString)
    include_editable_data_model (s/maybe su/BooleanString)}
   (fetch-query-metadata (db/select-one Table :id id) {:include-sensitive-fields?    include_sensitive_fields
-                                    :include-hidden-fields?       include_hidden_fields
-                                    :include-editable-data-model? include_editable_data_model}))
+                                                      :include-hidden-fields?       include_hidden_fields
+                                                      :include-editable-data-model? include_editable_data_model}))
 
 (defn- card-result-metadata->virtual-fields
   "Return a sequence of 'virtual' fields metadata for the 'virtual' table for a Card in the Saved Questions 'virtual'
@@ -338,7 +339,7 @@
   "Schema name to use for the saved questions virtual database for Cards that are in the root collection (i.e., not in
   any collection)."
   []
-  (tru "Everything else"))
+  "Everything else")
 
 (defn card->virtual-table
   "Return metadata for a 'virtual' table for a `card` in the Saved Questions 'virtual' database. Optionally include

@@ -1,51 +1,54 @@
 (ns metabase.api.database
   "/api/database endpoints."
-  (:require [clojure.string :as str]
-            [clojure.tools.logging :as log]
-            [compojure.core :refer [DELETE GET POST PUT]]
-            [medley.core :as m]
-            [metabase.analytics.snowplow :as snowplow]
-            [metabase.api.common :as api]
-            [metabase.api.table :as api.table]
-            [metabase.config :as config]
-            [metabase.db.connection :as mdb.connection]
-            [metabase.driver :as driver]
-            [metabase.driver.ddl.interface :as ddl.i]
-            [metabase.driver.util :as driver.u]
-            [metabase.events :as events]
-            [metabase.mbql.schema :as mbql.s]
-            [metabase.mbql.util :as mbql.u]
-            [metabase.models.card :refer [Card]]
-            [metabase.models.collection :as collection :refer [Collection]]
-            [metabase.models.database :as database :refer [Database
-                                                           protected-password]]
-            [metabase.models.field :refer [Field readable-fields-only]]
-            [metabase.models.field-values :refer [FieldValues]]
-            [metabase.models.interface :as mi]
-            [metabase.models.permissions :as perms]
-            [metabase.models.persisted-info :as persisted-info]
-            [metabase.models.secret :as secret]
-            [metabase.models.setting :as setting :refer [defsetting]]
-            [metabase.models.table :refer [Table]]
-            [metabase.plugins.classloader :as classloader]
-            [metabase.public-settings :as public-settings]
-            [metabase.sample-data :as sample-data]
-            [metabase.sync.analyze :as analyze]
-            [metabase.sync.field-values :as field-values]
-            [metabase.sync.schedules :as sync.schedules]
-            [metabase.sync.sync-metadata :as sync-metadata]
-            [metabase.sync.util :as sync-util]
-            [metabase.task.persist-refresh :as task.persist-refresh]
-            [metabase.util :as u]
-            [metabase.util.cron :as u.cron]
-            [metabase.util.honeysql-extensions :as hx]
-            [metabase.util.i18n :refer [deferred-tru trs tru]]
-            [metabase.util.schema :as su]
-            [schema.core :as s]
-            [toucan.db :as db]
-            [toucan.hydrate :refer [hydrate]]
-            [toucan.models :as models])
-  (:import metabase.models.database.DatabaseInstance))
+  (:require
+   [clojure.string :as str]
+   [clojure.tools.logging :as log]
+   [compojure.core :refer [DELETE GET POST PUT]]
+   [medley.core :as m]
+   [metabase.analytics.snowplow :as snowplow]
+   [metabase.api.common :as api]
+   [metabase.api.table :as api.table]
+   [metabase.config :as config]
+   [metabase.db.connection :as mdb.connection]
+   [metabase.driver :as driver]
+   [metabase.driver.ddl.interface :as ddl.i]
+   [metabase.driver.util :as driver.u]
+   [metabase.events :as events]
+   [metabase.mbql.schema :as mbql.s]
+   [metabase.mbql.util :as mbql.u]
+   [metabase.models.card :refer [Card]]
+   [metabase.models.collection :as collection :refer [Collection]]
+   [metabase.models.database
+    :as database
+    :refer [Database protected-password]]
+   [metabase.models.field :refer [Field readable-fields-only]]
+   [metabase.models.field-values :refer [FieldValues]]
+   [metabase.models.interface :as mi]
+   [metabase.models.permissions :as perms]
+   [metabase.models.persisted-info :as persisted-info]
+   [metabase.models.secret :as secret]
+   [metabase.models.setting :as setting :refer [defsetting]]
+   [metabase.models.table :refer [Table]]
+   [metabase.plugins.classloader :as classloader]
+   [metabase.public-settings :as public-settings]
+   [metabase.sample-data :as sample-data]
+   [metabase.sync.analyze :as analyze]
+   [metabase.sync.field-values :as field-values]
+   [metabase.sync.schedules :as sync.schedules]
+   [metabase.sync.sync-metadata :as sync-metadata]
+   [metabase.sync.util :as sync-util]
+   [metabase.task.persist-refresh :as task.persist-refresh]
+   [metabase.util :as u]
+   [metabase.util.cron :as u.cron]
+   [metabase.util.honeysql-extensions :as hx]
+   [metabase.util.i18n :refer [deferred-tru trs tru]]
+   [metabase.util.schema :as su]
+   [schema.core :as s]
+   [toucan.db :as db]
+   [toucan.hydrate :refer [hydrate]]
+   [toucan.models :as models])
+  (:import
+   (metabase.models.database DatabaseInstance)))
 
 (def DBEngineString
   "Schema for a valid database engine name, e.g. `h2` or `postgres`."
@@ -430,26 +433,27 @@
                         second
                         (str/replace #"-" " ")
                         str/lower-case)]
-    (db/select [Card :id :dataset :database_id :name :collection_id]
+    (db/select [Card :id :dataset :database_id :name :collection_id [:collection.name :collection_name]]
                {:where    [:and
-                           [:= :database_id database-id]
-                           [:= :archived false]
+                           [:= :report_card.database_id database-id]
+                           [:= :report_card.archived false]
                            (cond
                              ;; e.g. search-string = "123"
                              (and (not-empty search-id) (empty? search-name))
-                             [:like (hx/cast (if (= (mdb.connection/db-type) :mysql) :char :text) :id) (str search-id "%")]
+                             [:like (hx/cast (if (= (mdb.connection/db-type) :mysql) :char :text) :report_card.id) (str search-id "%")]
 
                              ;; e.g. search-string = "123-foo"
                              (and (not-empty search-id) (not-empty search-name))
                              [:and
-                              [:= :id (Integer/parseInt search-id)]
+                              [:= :report_card.id (Integer/parseInt search-id)]
                               ;; this is a prefix match to be consistent with substring matches on the entire slug
-                              [:like :%lower.name (str search-name "%")]]
+                              [:like :%lower.report_card.name (str search-name "%")]]
 
                              ;; e.g. search-string = "foo"
                              (and (empty? search-id) (not-empty search-name))
-                             [:like :%lower.name (str "%" search-name "%")])]
-                :order-by [[:id :desc]]
+                             [:like :%lower.report_card.name (str "%" search-name "%")])]
+                :left-join [[:collection :collection] [:= :collection.id :report_card.collection_id]]
+                :order-by [[:report_card.id :desc]]
                 :limit    50})))
 
 (defn- autocomplete-fields [db-id search-string limit]
@@ -544,7 +548,7 @@
   (try
     (->> (autocomplete-cards id query)
          (filter mi/can-read?)
-         (map #(select-keys % [:id :name :dataset])))
+         (map #(select-keys % [:id :name :dataset :collection_name])))
     (catch Throwable t
       (log/warn "Error with autocomplete: " (.getMessage t)))))
 

@@ -1,15 +1,16 @@
 (ns metabase.query-processor.reducible-test
   "Some basic tests around very-low-level QP logic, and some of the new features of the QP (such as support for
   different reducing functions.)"
-  (:require [clojure.core.async :as a]
-            [clojure.java.io :as io]
-            [clojure.string :as str]
-            [clojure.test :refer :all]
-            [metabase.query-processor :as qp]
-            [metabase.query-processor.context.default :as context.default]
-            [metabase.query-processor.reducible :as qp.reducible]
-            [metabase.test :as mt]
-            [metabase.util :as u]))
+  (:require
+   [clojure.core.async :as a]
+   [clojure.java.io :as io]
+   [clojure.string :as str]
+   [clojure.test :refer :all]
+   [metabase.query-processor :as qp]
+   [metabase.query-processor.context.default :as context.default]
+   [metabase.query-processor.reducible :as qp.reducible]
+   [metabase.test :as mt]
+   [metabase.util :as u]))
 
 (defn- print-rows-rff [_metadata]
   (fn
@@ -177,7 +178,7 @@
                          {:database (mt/id)
                           :type     :query
                           :query    {:source-table (mt/id :venues)
-                                     :fields       [[:field-id (mt/id :venues :id)]]}}
+                                     :fields       [[:field (mt/id :venues :id) nil]]}}
                          additional-options)
                         rows)))]
               (is (= [[1]

@@ -1,59 +1,59 @@
 (ns metabase.api.card-test
   "Tests for /api/card endpoints."
-  (:require [cheshire.core :as json]
-            [clojure.string :as str]
-            [clojure.test :refer :all]
-            [clojure.tools.macro :as tools.macro]
-            [clojurewerkz.quartzite.scheduler :as qs]
-            [dk.ative.docjure.spreadsheet :as spreadsheet]
-            [java-time :as t]
-            [medley.core :as m]
-            [metabase.api.card :as api.card]
-            [metabase.api.pivots :as api.pivots]
-            [metabase.driver :as driver]
-            [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
-            [metabase.http-client :as client]
-            [metabase.models :refer [Card
-                                     CardBookmark
-                                     CardEmitter
-                                     Collection
-                                     Dashboard
-                                     Database
-                                     Emitter
-                                     ModerationReview
-                                     PersistedInfo
-                                     Pulse
-                                     PulseCard
-                                     PulseChannel
-                                     PulseChannelRecipient
-                                     QueryAction
-                                     Table
-                                     Timeline
-                                     TimelineEvent
-                                     ViewLog]]
-            [metabase.models.moderation-review :as moderation-review]
-            [metabase.models.permissions :as perms]
-            [metabase.models.permissions-group :as perms-group]
-            [metabase.models.revision :as revision :refer [Revision]]
-            [metabase.models.user :refer [User]]
-            [metabase.query-processor :as qp]
-            [metabase.query-processor.async :as qp.async]
-            [metabase.query-processor.card :as qp.card]
-            [metabase.query-processor.middleware.constraints :as qp.constraints]
-            [metabase.server.middleware.util :as mw.util]
-            [metabase.task :as task]
-            [metabase.task.persist-refresh :as task.persist-refresh]
-            [metabase.task.sync-databases :as task.sync-databases]
-            [metabase.test :as mt]
-            [metabase.test.data.users :as test.users]
-            [metabase.util :as u]
-            [metabase.util.schema :as su]
-            [schema.core :as s]
-            [toucan.db :as db]
-            [toucan.hydrate :refer [hydrate]])
-  (:import java.io.ByteArrayInputStream
-           java.util.UUID
-           org.quartz.impl.StdSchedulerFactory))
+  (:require
+   [cheshire.core :as json]
+   [clojure.string :as str]
+   [clojure.test :refer :all]
+   [clojure.tools.macro :as tools.macro]
+   [clojurewerkz.quartzite.scheduler :as qs]
+   [dk.ative.docjure.spreadsheet :as spreadsheet]
+   [java-time :as t]
+   [medley.core :as m]
+   [metabase.api.card :as api.card]
+   [metabase.api.pivots :as api.pivots]
+   [metabase.driver :as driver]
+   [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
+   [metabase.http-client :as client]
+   [metabase.models
+    :refer [Card
+            CardBookmark
+            Collection
+            Dashboard
+            Database
+            ModerationReview
+            PersistedInfo
+            Pulse
+            PulseCard
+            PulseChannel
+            PulseChannelRecipient
+            Table
+            Timeline
+            TimelineEvent
+            ViewLog]]
+   [metabase.models.moderation-review :as moderation-review]
+   [metabase.models.permissions :as perms]
+   [metabase.models.permissions-group :as perms-group]
+   [metabase.models.revision :as revision :refer [Revision]]
+   [metabase.models.user :refer [User]]
+   [metabase.query-processor :as qp]
+   [metabase.query-processor.async :as qp.async]
+   [metabase.query-processor.card :as qp.card]
+   [metabase.query-processor.middleware.constraints :as qp.constraints]
+   [metabase.server.middleware.util :as mw.util]
+   [metabase.task :as task]
+   [metabase.task.persist-refresh :as task.persist-refresh]
+   [metabase.task.sync-databases :as task.sync-databases]
+   [metabase.test :as mt]
+   [metabase.test.data.users :as test.users]
+   [metabase.util :as u]
+   [metabase.util.schema :as su]
+   [schema.core :as s]
+   [toucan.db :as db]
+   [toucan.hydrate :refer [hydrate]])
+  (:import
+   (java.io ByteArrayInputStream)
+   (java.util UUID)
+   (org.quartz.impl StdSchedulerFactory)))
 
 (comment api.card/keep-me)
 
@@ -774,22 +774,6 @@
                           :moderation_reviews
                           (map clean)))))))))))
 
-(deftest fetch-card-emitter-test
-  (testing "GET /api/card/:id"
-    (testing "Fetch card with an emitter"
-      (mt/with-temp* [Card [read-card {:name "Test Read Card"}]
-                      Card [write-card {:is_write true :name "Test Write Card"}]
-                      Emitter [{emitter-id :id} {:action_id (u/the-id (db/select-one-field :action_id QueryAction :card_id (u/the-id write-card)))}]]
-        (db/insert! CardEmitter {:emitter_id emitter-id
-                                 :card_id (u/the-id read-card)})
-        (testing "admin sees emitters"
-          (is (partial=
-               {:emitters [{:action {:type "query" :card {:name "Test Write Card"}}}]}
-               (mt/user-http-request :crowberto :get 200 (format "card/%d" (u/the-id read-card))))))
-        (testing "non-admin does not see emitters"
-          (is (nil?
-               (:emitters (mt/user-http-request :rasta :get 200 (format "card/%d" (u/the-id read-card)))))))))))
-
 ;;; +----------------------------------------------------------------------------------------------------------------+
 ;;; |                                       UPDATING A CARD (PUT /api/card/:id)
 ;;; +----------------------------------------------------------------------------------------------------------------+
@@ -1291,8 +1275,8 @@
             :f              (fn [{:keys [card]}]
                               (mt/user-http-request :crowberto :put 200 (str "card/" (u/the-id card))
                                                     {:dataset_query (assoc-in (mbql-count-query (mt/id) (mt/id :checkins))
-                                                                              [:query :breakout] [[:datetime-field (mt/id :checkins :date) "hour"]
-                                                                                                  [:datetime-field (mt/id :checkins :date) "minute"]])}))}
+                                                                              [:query :breakout] [[:field (mt/id :checkins :date) {:temporal-unit :hour}]
+                                                                                                  [:field (mt/id :checkins :date) {:temporal-unit :minute}]])}))}
            {:message        "Adding an additional breakout will cause the alert to be removed if a goal is set"
             :card           {:display                :line
                              :visualization_settings {:graph.goal_value 10}
@@ -1307,8 +1291,8 @@
             :f              (fn [{:keys [card]}]
                               (mt/user-http-request :crowberto :put 200 (str "card/" (u/the-id card))
                                                     {:dataset_query (assoc-in (mbql-count-query (mt/id) (mt/id :checkins))
-                                                                              [:query :breakout] [[:datetime-field (mt/id :checkins :date) "hour"]
-                                                                                                  [:datetime-field (mt/id :checkins :date) "minute"]])}))}]]
+                                                                              [:query :breakout] [[:field (mt/id :checkins :date) {:temporal-unit :hour}]
+                                                                                                  [:field (mt/id :checkins :date) {:temporal-unit :minute}]])}))}]]
     (testing message
       (mt/with-temp* [Card                  [card  card]
                       Pulse                 [pulse {:alert_condition  "rows"
@@ -2359,6 +2343,16 @@
       :result-fn   (fn [result _]
                      (is (= {:errors {:is_write "Cannot mark Saved Question as 'is_write': Saved Question is a Dataset."}}
                             result)))})))
+
+(deftest set-is-write-user-is-not-admin-test
+  (with-actions-enabled
+    (doseq [f [test-update-is-write-card
+               test-create-is-write-card]]
+      (f {:status-code 403
+          :user                 :rasta
+          :result-fn            (fn [result _]
+                                  (is (= "You don't have permissions to do that."
+                                         result)))}))))
 
 (deftest set-is-write-card-query-is-not-native-query-test
   (with-actions-enabled

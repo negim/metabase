@@ -5,28 +5,29 @@
   functionality allows us to easily test with multiple datasets.
 
   TODO - We should rename this namespace to `metabase.driver.test-extensions` or something like that."
-  (:require [clojure.string :as str]
-            [clojure.tools.logging :as log]
-            [clojure.tools.reader.edn :as edn]
-            [environ.core :refer [env]]
-            [medley.core :as m]
-            [metabase.db :as mdb]
-            [metabase.driver :as driver]
-            [metabase.driver.ddl.interface :as ddl.i]
-            [metabase.models.database :refer [Database]]
-            [metabase.models.field :as field :refer [Field]]
-            [metabase.models.table :refer [Table]]
-            [metabase.plugins.classloader :as classloader]
-            [metabase.query-processor :as qp]
-            [metabase.test-runner.init :as test-runner.init]
-            [metabase.test.initialize :as initialize]
-            [metabase.util :as u]
-            [metabase.util.date-2 :as u.date]
-            [metabase.util.schema :as su]
-            [potemkin.types :as p.types]
-            [pretty.core :as pretty]
-            [schema.core :as s]
-            [toucan.db :as db]))
+  (:require
+   [clojure.string :as str]
+   [clojure.tools.logging :as log]
+   [clojure.tools.reader.edn :as edn]
+   [environ.core :refer [env]]
+   [medley.core :as m]
+   [metabase.db :as mdb]
+   [metabase.driver :as driver]
+   [metabase.driver.ddl.interface :as ddl.i]
+   [metabase.models.database :refer [Database]]
+   [metabase.models.field :as field :refer [Field]]
+   [metabase.models.table :refer [Table]]
+   [metabase.plugins.classloader :as classloader]
+   [metabase.query-processor :as qp]
+   [metabase.test-runner.init :as test-runner.init]
+   [metabase.test.initialize :as initialize]
+   [metabase.util :as u]
+   [metabase.util.date-2 :as u.date]
+   [metabase.util.schema :as su]
+   [potemkin.types :as p.types]
+   [pretty.core :as pretty]
+   [schema.core :as s]
+   [toucan.db :as db]))
 
 ;;; +----------------------------------------------------------------------------------------------------------------+
 ;;; |                                   Dataset Definition Record Types & Protocol                                   |
@@ -290,10 +291,12 @@
   "Return the connection details map that should be used to connect to the Database we will create for
   `database-definition`.
 
+  `connection-type` is either:
+
   *  `:server` - Return details for making the connection in a way that isn't DB-specific (e.g., for
                  creating/destroying databases)
   *  `:db`     - Return details for connecting specifically to the DB."
-  {:arglists '([driver context database-definition])}
+  {:arglists '([driver connection-type database-definition])}
   dispatch-on-driver-with-test-extensions
   :hierarchy #'driver/hierarchy)
 
@@ -356,6 +359,21 @@
 
 (defmethod sorts-nil-first? ::test-extensions [_ _] true)
 
+(defmulti supports-time-type?
+  "Whether this database supports a `TIME` data type or equivalent."
+  {:arglists '([driver])}
+  dispatch-on-driver-with-test-extensions
+  :hierarchy #'driver/hierarchy)
+
+(defmethod supports-time-type? ::test-extensions [_driver] true)
+
+(defmulti supports-timestamptz-type?
+  "Whether this database supports a `timestamp with time zone` data type or equivalent."
+  {:arglists '([driver])}
+  dispatch-on-driver-with-test-extensions
+  :hierarchy #'driver/hierarchy)
+
+(defmethod supports-timestamptz-type? ::test-extensions [_driver] true)
 
 (defmulti aggregate-column-info
   "Return the expected type information that should come back for QP results as part of `:cols` for an aggregation of a

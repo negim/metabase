@@ -1,29 +1,32 @@
 (ns metabase.api.search
-  (:require [clojure.string :as str]
-            [clojure.tools.logging :as log]
-            [compojure.core :refer [GET]]
-            [flatland.ordered.map :as ordered-map]
-            [honeysql.core :as hsql]
-            [honeysql.helpers :as hh]
-            [medley.core :as m]
-            [metabase.api.common :as api]
-            [metabase.db :as mdb]
-            [metabase.models :refer [App Database]]
-            [metabase.models.bookmark :refer [CardBookmark CollectionBookmark DashboardBookmark]]
-            [metabase.models.collection :as collection :refer [Collection]]
-            [metabase.models.interface :as mi]
-            [metabase.models.metric :refer [Metric]]
-            [metabase.models.permissions :as perms]
-            [metabase.models.segment :refer [Segment]]
-            [metabase.models.table :refer [Table]]
-            [metabase.search.config :as search-config]
-            [metabase.search.scoring :as scoring]
-            [metabase.server.middleware.offset-paging :as mw.offset-paging]
-            [metabase.util :as u]
-            [metabase.util.honeysql-extensions :as hx]
-            [metabase.util.schema :as su]
-            [schema.core :as s]
-            [toucan.db :as db]))
+  (:require
+   [clojure.string :as str]
+   [clojure.tools.logging :as log]
+   [compojure.core :refer [GET]]
+   [flatland.ordered.map :as ordered-map]
+   [honeysql.core :as hsql]
+   [honeysql.helpers :as hh]
+   [medley.core :as m]
+   [metabase.api.common :as api]
+   [metabase.db :as mdb]
+   [metabase.models :refer [App Database]]
+   [metabase.models.bookmark
+    :refer [CardBookmark CollectionBookmark DashboardBookmark]]
+   [metabase.models.collection :as collection :refer [Collection]]
+   [metabase.models.interface :as mi]
+   [metabase.models.metric :refer [Metric]]
+   [metabase.models.permissions :as perms]
+   [metabase.models.segment :refer [Segment]]
+   [metabase.models.table :refer [Table]]
+   [metabase.search.config :as search-config]
+   [metabase.search.scoring :as scoring]
+   [metabase.search.util :as search-util]
+   [metabase.server.middleware.offset-paging :as mw.offset-paging]
+   [metabase.util :as u]
+   [metabase.util.honeysql-extensions :as hx]
+   [metabase.util.schema :as su]
+   [schema.core :as s]
+   [toucan.db :as db]))
 
 (def ^:private SearchContext
   "Map with the various allowed search parameters, used to construct the SQL query"
@@ -190,7 +193,7 @@
   (when query
     (into [:or]
           (for [column searchable-columns
-                token (scoring/tokenize (scoring/normalize query))]
+                token (search-util/tokenize (search-util/normalize query))]
             (if (and (= model "card") (= column (hsql/qualify (model->alias model) :dataset_query)))
               [:and
                [:= (hsql/qualify (model->alias model) :query_type) "native"]
@@ -315,7 +318,7 @@
       (update :where (fn [where] [:and [:= :dashboard.is_app_page (= model "page")] where]))
       (hh/left-join [DashboardBookmark :bookmark]
                     [:and
-                     [:= :bookmark.dashboard_id :dashboard.id ]
+                     [:= :bookmark.dashboard_id :dashboard.id]
                      [:= :bookmark.user_id api/*current-user-id*]])
       (add-collection-join-and-where-clauses :dashboard.collection_id search-ctx)))
 
@@ -380,7 +383,7 @@
 (defn order-clause
   "CASE expression that lets the results be ordered by whether they're an exact (non-fuzzy) match or not"
   [query]
-  (let [match             (wildcard-match (scoring/normalize query))
+  (let [match             (wildcard-match (search-util/normalize query))
         columns-to-search (->> all-search-columns
                                (filter (fn [[_k v]] (= v :text)))
                                (map first)
@@ -443,33 +446,29 @@
 (s/defn ^:private search
   "Builds a search query that includes all of the searchable entities and runs it"
   [search-ctx :- SearchContext]
-  (letfn [(bit->boolean [v]
-            (if (number? v)
-              (not (zero? v))
-              v))]
-    (let [search-query      (full-search-query search-ctx)
-          _                 (log/tracef "Searching with query:\n%s" (u/pprint-to-str search-query))
-          reducible-results (db/reducible-query search-query :max-rows search-config/*db-max-results*)
-          xf                (comp
-                             (filter check-permissions-for-model)
-                             ;; MySQL returns `:bookmark` and `:archived` as `1` or `0` so convert those to boolean as needed
-                             (map #(update % :bookmark bit->boolean))
-                             (map #(update % :archived bit->boolean))
-                             (map (partial scoring/score-and-result (:search-string search-ctx)))
-                             (filter #(pos? (:score %))))
-          total-results     (scoring/top-results reducible-results xf)]
-      ;; We get to do this slicing and dicing with the result data because
-      ;; the pagination of search is for UI improvement, not for performance.
-      ;; We intend for the cardinality of the search results to be below the default max before this slicing occurs
-      {:total            (count total-results)
-       :data             (cond->> total-results
-                           (some?     (:offset-int search-ctx)) (drop (:offset-int search-ctx))
-                           (some?     (:limit-int search-ctx)) (take (:limit-int search-ctx)))
-       :available_models (query-model-set search-ctx)
-       :limit            (:limit-int search-ctx)
-       :offset           (:offset-int search-ctx)
-       :table_db_id      (:table-db-id search-ctx)
-       :models           (:models search-ctx)})))
+  (let [search-query      (full-search-query search-ctx)
+        _                 (log/tracef "Searching with query:\n%s" (u/pprint-to-str search-query))
+        reducible-results (db/reducible-query search-query :max-rows search-config/*db-max-results*)
+        xf                (comp
+                           (filter check-permissions-for-model)
+                           ;; MySQL returns `:bookmark` and `:archived` as `1` or `0` so convert those to boolean as needed
+                           (map #(update % :bookmark api/bit->boolean))
+                           (map #(update % :archived api/bit->boolean))
+                           (map (partial scoring/score-and-result (:search-string search-ctx)))
+                           (filter #(pos? (:score %))))
+        total-results     (scoring/top-results reducible-results search-config/max-filtered-results xf)]
+    ;; We get to do this slicing and dicing with the result data because
+    ;; the pagination of search is for UI improvement, not for performance.
+    ;; We intend for the cardinality of the search results to be below the default max before this slicing occurs
+    {:total            (count total-results)
+     :data             (cond->> total-results
+                         (some?     (:offset-int search-ctx)) (drop (:offset-int search-ctx))
+                         (some?     (:limit-int search-ctx)) (take (:limit-int search-ctx)))
+     :available_models (query-model-set search-ctx)
+     :limit            (:limit-int search-ctx)
+     :offset           (:offset-int search-ctx)
+     :table_db_id      (:table-db-id search-ctx)
+     :models           (:models search-ctx)}))
 
 ;;; +----------------------------------------------------------------------------------------------------------------+
 ;;; |                                                    Endpoint                                                    |

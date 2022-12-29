@@ -1,9 +1,6 @@
 import React, { useMemo } from "react";
 import { getIn } from "icepick";
 
-import { isMappedExplicitActionButton } from "metabase/writeback/utils";
-
-import type { UiParameter } from "metabase/parameters/types";
 import type {
   Dashboard,
   DashboardOrderedCard,
@@ -15,6 +12,7 @@ import type {
 } from "metabase-types/api";
 
 import { isTableDisplay } from "metabase/lib/click-behavior";
+import type { UiParameter } from "metabase-lib/parameters/types";
 import { getClickBehaviorForColumn } from "./utils";
 import ClickBehaviorSidebarMainView from "./ClickBehaviorSidebarMainView";
 import TableClickBehaviorView from "./TableClickBehaviorView";
@@ -50,11 +48,8 @@ function ClickBehaviorSidebar({
     if (clickBehavior) {
       return clickBehavior;
     }
-    if (isMappedExplicitActionButton(dashcard)) {
-      return { type: "action" };
-    }
     return { type: "actionMenu" };
-  }, [clickBehavior, dashcard]);
+  }, [clickBehavior]);
 
   if (isTableDisplay(dashcard) && !hasSelectedColumn) {
     const columns = getIn(dashcardData, [dashcard.card_id, "data", "cols"]);

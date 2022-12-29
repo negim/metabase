@@ -5,7 +5,7 @@ import { MODAL_TYPES } from "metabase/query_builder/constants";
 import SidebarContent from "metabase/query_builder/components/SidebarContent";
 import TimelinePanel from "metabase/timelines/questions/containers/TimelinePanel";
 import { Timeline, TimelineEvent } from "metabase-types/api";
-import Question from "metabase-lib/lib/Question";
+import Question from "metabase-lib/Question";
 
 export interface TimelineSidebarProps {
   question: Question;
@@ -52,7 +52,7 @@ const TimelineSidebar = ({
     [onOpenModal],
   );
 
-  const handleToggleEvent = useCallback(
+  const handleToggleEventSelected = useCallback(
     (event: TimelineEvent, isSelected: boolean) => {
       if (isSelected) {
         onSelectTimelineEvents?.([event]);
@@ -84,7 +84,7 @@ const TimelineSidebar = ({
         onNewEvent={handleNewEvent}
         onEditEvent={handleEditEvent}
         onMoveEvent={handleMoveEvent}
-        onToggleEvent={handleToggleEvent}
+        onToggleEventSelected={handleToggleEventSelected}
         onToggleTimeline={handleToggleTimeline}
       />
     </SidebarContent>

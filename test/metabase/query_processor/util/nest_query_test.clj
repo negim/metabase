@@ -1,12 +1,13 @@
 (ns metabase.query-processor.util.nest-query-test
-  (:require [clojure.test :refer :all]
-            [clojure.walk :as walk]
-            [metabase.driver :as driver]
-            [metabase.models :refer [Card Field]]
-            [metabase.query-processor :as qp]
-            [metabase.query-processor.util.add-alias-info :as add]
-            [metabase.query-processor.util.nest-query :as nest-query]
-            [metabase.test :as mt]))
+  (:require
+   [clojure.test :refer :all]
+   [clojure.walk :as walk]
+   [metabase.driver :as driver]
+   [metabase.models :refer [Card Field]]
+   [metabase.query-processor :as qp]
+   [metabase.query-processor.util.add-alias-info :as add]
+   [metabase.query-processor.util.nest-query :as nest-query]
+   [metabase.test :as mt]))
 
 ;; TODO -- this is duplicated with [[metabase.query-processor.util.add-alias-info-test/remove-source-metadata]]
 (defn- remove-source-metadata [x]
@@ -117,18 +118,18 @@
                                                          ::add/source-alias  "double_id"
                                                          ::add/desired-alias "double_id"
                                                          ::add/position      0}]
-                                    [:field %date {:temporal-unit      :day
-                                                   :nested/outer       true
-                                                   ::add/source-table  ::add/source
-                                                   ::add/source-alias  "DATE"
-                                                   ::add/desired-alias "DATE"
-                                                   ::add/position      1}]
-                                    [:field %date {:temporal-unit      :month
-                                                   :nested/outer       true
-                                                   ::add/source-table  ::add/source
-                                                   ::add/source-alias  "DATE"
-                                                   ::add/desired-alias "DATE_2"
-                                                   ::add/position      2}]]
+                                    [:field %date {:temporal-unit            :day
+                                                   ::nest-query/outer-select true
+                                                   ::add/source-table        ::add/source
+                                                   ::add/source-alias        "DATE"
+                                                   ::add/desired-alias       "DATE"
+                                                   ::add/position            1}]
+                                    [:field %date {:temporal-unit            :month
+                                                   ::nest-query/outer-select true
+                                                   ::add/source-table        ::add/source
+                                                   ::add/source-alias        "DATE"
+                                                   ::add/desired-alias       "DATE_2"
+                                                   ::add/position            2}]]
                      :limit        1})
                   (nest-expressions
                    (mt/mbql-query checkins
@@ -286,11 +287,11 @@
                  :joins        [{:alias           "Question 4918",
                                  :strategy        :left-join,
                                  :fields          [[:field 33 {:join-alias "Question 4918"}]
-                                          [:field
-                                           "count"
-                                           {:join-alias "Question 4918"}]]
+                                                   [:field
+                                                    "count"
+                                                    {:join-alias "Question 4918"}]]
                                  :condition       [:=
-                                             [:field 5 nil]
+                                                   [:field 5 nil]
                                                    [:field 33 {:join-alias "Question 4918",}]],
                                  :source-card-id  4918,
                                  :source-query    {:source-table 4,
@@ -300,12 +301,12 @@
                                                                   [:field 26 {:join-alias "PRODUCTS__via__PRODUCT_ID"}]
                                                                   [:value "Doohickey" {}]],
                                                    :aggregation  [[:aggregation-options
-                                                                  [:count]
+                                                                   [:count]
                                                                    {:name "count"}]],
                                                    :breakout     [[:field 33 nil]],
                                                    :limit        2,
                                                    :order-by     [[:asc
-                                                               [:field 33 nil]]],
+                                                                   [:field 33 nil]]],
                                                    ;; nested query has an implicit join with conditions that should
                                                    ;; not be selected
                                                    :joins        [{:alias        "PRODUCTS__via__PRODUCT_ID",
@@ -588,12 +589,12 @@
                                                                      ::add/position      5}]
                                                      [:expression "test" {::add/desired-alias "test"
                                                                           ::add/position     6}]]}
-                       :fields       [[:field %price {:temporal-unit      :default
-                                                      :nested/outer       true
-                                                      ::add/source-table  ::add/source
-                                                      ::add/source-alias  "PRICE"
-                                                      ::add/desired-alias "PRICE"
-                                                      ::add/position      0}]
+                       :fields       [[:field %price {:temporal-unit            :default
+                                                      ::nest-query/outer-select true
+                                                      ::add/source-table        ::add/source
+                                                      ::add/source-alias        "PRICE"
+                                                      ::add/desired-alias       "PRICE"
+                                                      ::add/position            0}]
                                       [:field "test" {:base-type          :type/Float
                                                       ::add/source-table  ::add/source
                                                       ::add/source-alias  "test"
@@ -684,12 +685,12 @@
                                                                             ::add/source-alias  "PRODUCTS__via__PRODUCT_ID__CATEGORY"
                                                                             ::add/desired-alias "PRODUCTS__via__PRODUCT_ID__CATEGORY"
                                                                             ::add/position      0}]
-                              created-at        [:field %created_at {:temporal-unit      :year
-                                                                     :nested/outer       true
-                                                                     ::add/source-table  ::add/source
-                                                                     ::add/source-alias  "CREATED_AT"
-                                                                     ::add/desired-alias "CREATED_AT"
-                                                                     ::add/position      1}]
+                              created-at        [:field %created_at {:temporal-unit            :year
+                                                                     ::nest-query/outer-select true
+                                                                     ::add/source-table        ::add/source
+                                                                     ::add/source-alias        "CREATED_AT"
+                                                                     ::add/desired-alias       "CREATED_AT"
+                                                                     ::add/position            1}]
                               pivot-grouping    [:field "pivot-grouping" {:base-type          :type/Float
                                                                           ::add/source-table  ::add/source
                                                                           ::add/source-alias  "pivot-grouping"

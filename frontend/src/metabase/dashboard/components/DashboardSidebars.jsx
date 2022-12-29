@@ -10,7 +10,6 @@ import * as MetabaseAnalytics from "metabase/lib/analytics";
 import ClickBehaviorSidebar from "./ClickBehaviorSidebar";
 import DashboardInfoSidebar from "./DashboardInfoSidebar";
 import { AddCardSidebar } from "./add-card-sidebar/AddCardSidebar";
-import { AddActionSidebar } from "./AddActionSidebar";
 
 DashboardSidebars.propTypes = {
   dashboard: PropTypes.object,
@@ -25,11 +24,13 @@ DashboardSidebars.propTypes = {
   onUpdateDashCardVisualizationSettings: PropTypes.func.isRequired,
   onUpdateDashCardColumnSettings: PropTypes.func.isRequired,
   setEditingParameter: PropTypes.func.isRequired,
-  setParameter: PropTypes.func.isRequired,
   setParameterName: PropTypes.func.isRequired,
   setParameterDefaultValue: PropTypes.func.isRequired,
-  dashcardData: PropTypes.object,
+  setParameterIsMultiSelect: PropTypes.func.isRequired,
+  setParameterSourceType: PropTypes.func.isRequired,
+  setParameterSourceConfig: PropTypes.func.isRequired,
   setParameterFilteringParameters: PropTypes.func.isRequired,
+  dashcardData: PropTypes.object,
   isSharing: PropTypes.bool.isRequired,
   isEditing: PropTypes.bool.isRequired,
   isFullscreen: PropTypes.bool.isRequired,
@@ -55,11 +56,13 @@ export function DashboardSidebars({
   onReplaceAllDashCardVisualizationSettings,
   onUpdateDashCardVisualizationSettings,
   onUpdateDashCardColumnSettings,
-  setParameter,
   setParameterName,
   setParameterDefaultValue,
-  dashcardData,
+  setParameterIsMultiSelect,
+  setParameterSourceType,
+  setParameterSourceConfig,
   setParameterFilteringParameters,
+  dashcardData,
   isFullscreen,
   onCancel,
   params,
@@ -91,16 +94,6 @@ export function DashboardSidebars({
           onSelect={handleAddCard}
         />
       );
-    case SIDEBAR_NAME.addActionForm:
-    case SIDEBAR_NAME.addActionButton:
-      return (
-        <AddActionSidebar
-          dashboard={dashboard}
-          displayType={
-            sidebar.name === SIDEBAR_NAME.addActionForm ? "form" : "button"
-          }
-        />
-      );
     case SIDEBAR_NAME.clickBehavior:
       return (
         <ClickBehaviorSidebar
@@ -128,20 +121,15 @@ export function DashboardSidebars({
         <ParameterSidebar
           parameter={parameter}
           otherParameters={otherParameters}
-          remove={() => {
-            closeSidebar();
-            removeParameter(editingParameterId);
-          }}
-          done={() => closeSidebar()}
-          showAddParameterPopover={showAddParameterPopover}
-          setParameter={setParameter}
-          setName={name => setParameterName(editingParameterId, name)}
-          setDefaultValue={value =>
-            setParameterDefaultValue(editingParameterId, value)
-          }
-          setFilteringParameters={ids =>
-            setParameterFilteringParameters(editingParameterId, ids)
-          }
+          onChangeName={setParameterName}
+          onChangeDefaultValue={setParameterDefaultValue}
+          onChangeIsMultiSelect={setParameterIsMultiSelect}
+          onChangeSourceType={setParameterSourceType}
+          onChangeSourceConfig={setParameterSourceConfig}
+          onChangeFilteringParameters={setParameterFilteringParameters}
+          onRemoveParameter={removeParameter}
+          onShowAddParameterPopover={showAddParameterPopover}
+          onClose={closeSidebar}
         />
       );
     }

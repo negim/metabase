@@ -1,15 +1,16 @@
 (ns metabase.query-processor-test.expressions-test
   "Tests for expressions (calculated columns)."
-  (:require [clojure.test :refer :all]
-            [java-time :as t]
-            [medley.core :as m]
-            [metabase.driver :as driver]
-            [metabase.models.field :refer [Field]]
-            [metabase.query-processor :as qp]
-            [metabase.test :as mt]
-            [metabase.util :as u]
-            [metabase.util.date-2 :as u.date]
-            [toucan.db :as db]))
+  (:require
+   [clojure.test :refer :all]
+   [java-time :as t]
+   [medley.core :as m]
+   [metabase.driver :as driver]
+   [metabase.models.field :refer [Field]]
+   [metabase.query-processor :as qp]
+   [metabase.test :as mt]
+   [metabase.util :as u]
+   [metabase.util.date-2 :as u.date]
+   [toucan.db :as db]))
 
 (deftest basic-test
   (mt/test-drivers (mt/normal-drivers-with-feature :expressions)
@@ -431,8 +432,8 @@
         (let [r-word  "r_word"
               no-sp   "no_spaces"
               results (mt/run-mbql-query venues
-                        {:expressions  {r-word [:regex-match-first [:field-id (mt/id :venues :name)] "^R[^ ]+"]
-                                        no-sp  [:replace [:field-id (mt/id :venues :name)] " " ""]}
+                        {:expressions  {r-word [:regex-match-first $name "^R[^ ]+"]
+                                        no-sp  [:replace $name " " ""]}
                          :source-query {:source-table $$venues}
                          :fields       [$name [:expression r-word] [:expression no-sp]]
                          :filter       [:= $id 1 95]
@@ -447,9 +448,9 @@
   (mt/test-drivers (mt/normal-drivers-with-feature :expressions)
     (testing "An expression whose name contains weird characters works properly"
       (let [query (mt/mbql-query venues
-                 {:expressions {"Refund Amount (?)" [:* $price -1]}
-                  :limit       1
-                  :order-by    [[:asc $id]]})]
+                   {:expressions {"Refund Amount (?)" [:* $price -1]}
+                    :limit       1
+                    :order-by    [[:asc $id]]})]
         (mt/with-native-query-testing-context query
           (is (= [[1 "Red Medicine" 4 10.0646 -165.374 3 -3]]
                  (mt/formatted-rows [int str int 4.0 4.0 int int]

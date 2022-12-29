@@ -1,13 +1,14 @@
 (ns metabase.public-settings-test
-  (:require [clj-http.fake :as http-fake]
-            [clojure.core.memoize :as memoize]
-            [clojure.test :refer :all]
-            [metabase.models.setting :as setting]
-            [metabase.public-settings :as public-settings]
-            [metabase.public-settings.premium-features :as premium-features]
-            [metabase.test :as mt]
-            [metabase.test.fixtures :as fixtures]
-            [metabase.util.i18n :as i18n :refer [tru]]))
+  (:require
+   [clj-http.fake :as http-fake]
+   [clojure.core.memoize :as memoize]
+   [clojure.test :refer :all]
+   [metabase.models.setting :as setting]
+   [metabase.public-settings :as public-settings]
+   [metabase.public-settings.premium-features :as premium-features]
+   [metabase.test :as mt]
+   [metabase.test.fixtures :as fixtures]
+   [metabase.util.i18n :as i18n :refer [tru]]))
 
 (use-fixtures :once (fixtures/initialize :db))
 
@@ -32,11 +33,11 @@
            (public-settings/site-url)))))
 
 (deftest site-url-settings-https
-  (testing "if https:// was specified it should keep it")
-  (mt/discard-setting-changes [site-url]
-    (public-settings/site-url! "https://localhost:3000")
-    (is (= "https://localhost:3000"
-           (public-settings/site-url)))))
+  (testing "if https:// was specified it should keep it"
+    (mt/discard-setting-changes [site-url]
+      (public-settings/site-url! "https://localhost:3000")
+      (is (= "https://localhost:3000"
+             (public-settings/site-url))))))
 
 (deftest site-url-settings-validate-site-url
   (testing "we should not be allowed to set an invalid `site-url` (#9850)"

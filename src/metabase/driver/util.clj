@@ -1,24 +1,26 @@
 (ns metabase.driver.util
   "Utility functions for common operations on drivers."
-  (:require [clojure.core.memoize :as memoize]
-            [clojure.set :as set]
-            [clojure.string :as str]
-            [clojure.tools.logging :as log]
-            [metabase.config :as config]
-            [metabase.db.connection :as mdb.connection]
-            [metabase.driver :as driver]
-            [metabase.models.setting :refer [defsetting]]
-            [metabase.public-settings.premium-features :as premium-features]
-            [metabase.query-processor.error-type :as qp.error-type]
-            [metabase.util :as u]
-            [metabase.util.i18n :refer [deferred-tru trs]]
-            [toucan.db :as db])
-  (:import java.io.ByteArrayInputStream
-           [java.security KeyFactory KeyStore PrivateKey]
-           [java.security.cert Certificate CertificateFactory X509Certificate]
-           java.security.spec.PKCS8EncodedKeySpec
-           javax.net.SocketFactory
-           [javax.net.ssl KeyManagerFactory SSLContext TrustManagerFactory X509TrustManager]))
+  (:require
+   [clojure.core.memoize :as memoize]
+   [clojure.set :as set]
+   [clojure.string :as str]
+   [clojure.tools.logging :as log]
+   [metabase.config :as config]
+   [metabase.db.connection :as mdb.connection]
+   [metabase.driver :as driver]
+   [metabase.models.setting :refer [defsetting]]
+   [metabase.public-settings.premium-features :as premium-features]
+   [metabase.query-processor.error-type :as qp.error-type]
+   [metabase.util :as u]
+   [metabase.util.i18n :refer [deferred-tru trs]]
+   [toucan.db :as db])
+  (:import
+   (java.io ByteArrayInputStream)
+   (java.security KeyFactory KeyStore PrivateKey)
+   (java.security.cert Certificate CertificateFactory X509Certificate)
+   (java.security.spec PKCS8EncodedKeySpec)
+   (javax.net SocketFactory)
+   (javax.net.ssl KeyManagerFactory SSLContext TrustManagerFactory X509TrustManager)))
 
 (def ^:private connection-error-messages
   "Generic error messages that drivers should return in their implementation
@@ -290,16 +292,16 @@
      {:name (str prop-name "-patterns")
       :type "text"
       :placeholder "E.x. public,auth*"
-      :description (trs "Comma separated names of {0} that <strong>should</strong> appear in Metabase" (str/lower-case disp-name))
+      :description (trs "Comma separated names of {0} that should appear in Metabase" (str/lower-case disp-name))
       :visible-if  {(keyword type-prop-nm) "inclusion"}
-      :helper-text (trs "You can use patterns like <strong>auth*</strong> to match multiple {0}" (str/lower-case disp-name))
+      :helper-text (trs "You can use patterns like \"auth*\" to match multiple {0}" (str/lower-case disp-name))
       :required true}
      {:name (str prop-name "-patterns")
       :type "text"
       :placeholder "E.x. public,auth*"
-      :description (trs "Comma separated names of {0} that <strong>should NOT</strong> appear in Metabase" (str/lower-case disp-name))
+      :description (trs "Comma separated names of {0} that should NOT appear in Metabase" (str/lower-case disp-name))
       :visible-if  {(keyword type-prop-nm) "exclusion"}
-      :helper-text (trs "You can use patterns like <strong>auth*</strong> to match multiple {0}" (str/lower-case disp-name))
+      :helper-text (trs "You can use patterns like \"auth*\" to match multiple {0}" (str/lower-case disp-name))
       :required true}]))
 
 
@@ -431,7 +433,23 @@
 
 (def official-drivers
   "The set of all official drivers"
-  #{"bigquery-cloud-sdk" "druid" "googleanalytics" "h2" "mongo" "mysql" "oracle" "postgres" "presto" "presto-jdbc" "redshift" "snowflake" "sparksql" "sqlite" "sqlserver" "vertica"})
+  #{"athena"
+    "bigquery-cloud-sdk"
+    "druid"
+    "googleanalytics"
+    "h2"
+    "mongo"
+    "mysql"
+    "oracle"
+    "postgres"
+    "presto"
+    "presto-jdbc"
+    "redshift"
+    "snowflake"
+    "sparksql"
+    "sqlite"
+    "sqlserver"
+    "vertica"})
 
 (def partner-drivers
   "The set of other drivers in the partnership program"
@@ -468,7 +486,8 @@
   "Available database engines"
   :visibility :public
   :setter     :none
-  :getter     available-drivers-info)
+  :getter     available-drivers-info
+  :doc        false)
 
 ;;; +----------------------------------------------------------------------------------------------------------------+
 ;;; |                                             TLS Helpers                                                        |

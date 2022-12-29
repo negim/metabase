@@ -4,39 +4,40 @@
   `:snippet` namespace, (called 'Snippet folders' in the UI). These namespaces are completely independent hierarchies.
   To use these endpoints for other Collections namespaces, you can pass the `?namespace=` parameter (e.g.
   `?namespace=snippet`)."
-  (:require [cheshire.core :as json]
-            [clojure.string :as str]
-            [compojure.core :refer [GET POST PUT]]
-            [honeysql.core :as hsql]
-            [honeysql.helpers :as hh]
-            [medley.core :as m]
-            [metabase.api.card :as api.card]
-            [metabase.api.common :as api]
-            [metabase.api.timeline :as api.timeline]
-            [metabase.db :as mdb]
-            [metabase.driver.common.parameters :as params]
-            [metabase.driver.common.parameters.parse :as params.parse]
-            [metabase.mbql.normalize :as mbql.normalize]
-            [metabase.models.card :refer [Card]]
-            [metabase.models.collection :as collection :refer [Collection]]
-            [metabase.models.collection.graph :as graph]
-            #_:clj-kondo/ignore ;; bug: when alias defined for namespaced keywords is run through kondo macro, ns should be regarded as used
-            [metabase.models.collection.root :as collection.root]
-            [metabase.models.dashboard :refer [Dashboard]]
-            [metabase.models.interface :as mi]
-            [metabase.models.native-query-snippet :refer [NativeQuerySnippet]]
-            [metabase.models.permissions :as perms]
-            [metabase.models.pulse :as pulse :refer [Pulse]]
-            [metabase.models.pulse-card :refer [PulseCard]]
-            [metabase.models.revision.last-edit :as last-edit]
-            [metabase.models.timeline :as timeline :refer [Timeline]]
-            [metabase.server.middleware.offset-paging :as mw.offset-paging]
-            [metabase.util :as u]
-            [metabase.util.honeysql-extensions :as hx]
-            [metabase.util.schema :as su]
-            [schema.core :as s]
-            [toucan.db :as db]
-            [toucan.hydrate :refer [hydrate]]))
+  (:require
+   [cheshire.core :as json]
+   [clojure.string :as str]
+   [compojure.core :refer [GET POST PUT]]
+   [honeysql.core :as hsql]
+   [honeysql.helpers :as hh]
+   [medley.core :as m]
+   [metabase.api.card :as api.card]
+   [metabase.api.common :as api]
+   [metabase.api.timeline :as api.timeline]
+   [metabase.db :as mdb]
+   [metabase.driver.common.parameters :as params]
+   [metabase.driver.common.parameters.parse :as params.parse]
+   [metabase.mbql.normalize :as mbql.normalize]
+   [metabase.models.card :refer [Card]]
+   [metabase.models.collection :as collection :refer [Collection]]
+   [metabase.models.collection.graph :as graph]
+   #_:clj-kondo/ignore ;; bug: when alias defined for namespaced keywords is run through kondo macro, ns should be regarded as used
+   [metabase.models.collection.root :as collection.root]
+   [metabase.models.dashboard :refer [Dashboard]]
+   [metabase.models.interface :as mi]
+   [metabase.models.native-query-snippet :refer [NativeQuerySnippet]]
+   [metabase.models.permissions :as perms]
+   [metabase.models.pulse :as pulse :refer [Pulse]]
+   [metabase.models.pulse-card :refer [PulseCard]]
+   [metabase.models.revision.last-edit :as last-edit]
+   [metabase.models.timeline :as timeline :refer [Timeline]]
+   [metabase.server.middleware.offset-paging :as mw.offset-paging]
+   [metabase.util :as u]
+   [metabase.util.honeysql-extensions :as hx]
+   [metabase.util.schema :as su]
+   [schema.core :as s]
+   [toucan.db :as db]
+   [toucan.hydrate :refer [hydrate]]))
 
 (declare root-collection)
 
@@ -297,13 +298,6 @@
   [_ collection options]
   (card-query false collection options))
 
-(defn- bit->boolean
-  "Coerce a bit returned by some MySQL/MariaDB versions in some situations to Boolean."
-  [v]
-  (if (number? v)
-    (not (zero? v))
-    v))
-
 (defn- fully-parametrized-text?
   "Decide if `text`, usually (a part of) a query, is fully parametrized given the parameter types
   described by `template-tags` (usually the template tags of a native query).
@@ -322,16 +316,21 @@
   without the necessary constraints. (Marking parameters in optional blocks as required doesn't
   seem to be useful any way, but if the user said it is required, we honor this flag.)"
   [text template-tags]
-  (let [obligatory-params (into #{}
-                                (comp (filter params/Param?)
-                                      (map :k))
-                                (params.parse/parse text))]
-    (and (every? #(or (#{:dimension :snippet} (:type %))
-                      (:default %))
-                 (map template-tags obligatory-params))
-         (every? #(or (not (:required %))
-                      (:default %))
-                 (vals template-tags)))))
+  (try
+    (let [obligatory-params (into #{}
+                                  (comp (filter params/Param?)
+                                        (map :k))
+                                  (params.parse/parse text))]
+      (and (every? #(or (#{:dimension :snippet} (:type %))
+                        (:default %))
+                   (map template-tags obligatory-params))
+           (every? #(or (not (:required %))
+                        (:default %))
+                   (vals template-tags))))
+    (catch clojure.lang.ExceptionInfo _
+      ;; An exception might be thrown during parameter parsing if the syntax is invalid. In this case we return
+      ;; true so that we still can try to generate a preview for the query and display an error.
+      false)))
 
 (defn- fully-parametrized-query? [row]
   (let [native-query (-> row :dataset_query json/parse-string mbql.normalize/normalize :native)]
@@ -342,7 +341,7 @@
 (defn- post-process-card-row [row]
   (-> row
       (dissoc :authority_level :icon :personal_owner_id :dataset_query)
-      (update :collection_preview bit->boolean)
+      (update :collection_preview api/bit->boolean)
       (assoc :fully_parametrized (fully-parametrized-query? row))))
 
 (defmethod post-process-collection-children :card
@@ -854,7 +853,7 @@
     ;; if we're trying to *archive* the Collection, make sure we're allowed to do that
     (check-allowed-to-archive-or-unarchive collection-before-update collection-updates)
     (when (and (contains? collection-updates :authority_level)
-                    (not= authority_level (:authority_level collection-before-update)))
+               (not= authority_level (:authority_level collection-before-update)))
       (api/check-403 (and api/*is-superuser?*
                           ;; pre-update of model checks if the collection is a personal collection and rejects changes
                           ;; to authority_level, but it doesn't check if it is a sub-collection of a personal one so we add that

@@ -72,28 +72,30 @@
 
   See #14055 and #19399 for more information about and motivation behind User- and Database-local Settings."
   (:refer-clojure :exclude [get])
-  (:require [cheshire.core :as json]
-            [clojure.core :as core]
-            [clojure.data :as data]
-            [clojure.data.csv :as csv]
-            [clojure.string :as str]
-            [clojure.tools.logging :as log]
-            [environ.core :as env]
-            [medley.core :as m]
-            [metabase.api.common :as api]
-            [metabase.models.serialization.base :as serdes.base]
-            [metabase.models.serialization.hash :as serdes.hash]
-            [metabase.models.setting.cache :as setting.cache]
-            [metabase.plugins.classloader :as classloader]
-            [metabase.util :as u]
-            [metabase.util.date-2 :as u.date]
-            [metabase.util.i18n :refer [deferred-trs deferred-tru trs tru]]
-            [schema.core :as s]
-            [toucan.db :as db]
-            [toucan.models :as models])
-  (:import [clojure.lang Keyword Symbol]
-           java.io.StringWriter
-           java.time.temporal.Temporal))
+  (:require
+   [cheshire.core :as json]
+   [clojure.core :as core]
+   [clojure.data :as data]
+   [clojure.data.csv :as csv]
+   [clojure.string :as str]
+   [clojure.tools.logging :as log]
+   [environ.core :as env]
+   [medley.core :as m]
+   [metabase.api.common :as api]
+   [metabase.models.serialization.base :as serdes.base]
+   [metabase.models.serialization.hash :as serdes.hash]
+   [metabase.models.setting.cache :as setting.cache]
+   [metabase.plugins.classloader :as classloader]
+   [metabase.util :as u]
+   [metabase.util.date-2 :as u.date]
+   [metabase.util.i18n :refer [deferred-trs deferred-tru trs tru]]
+   [schema.core :as s]
+   [toucan.db :as db]
+   [toucan.models :as models])
+  (:import
+   (clojure.lang Keyword Symbol)
+   (java.io StringWriter)
+   (java.time.temporal Temporal)))
 
 ;; TODO -- a way to SET Database-local values.
 (def ^:dynamic *database-local-values*
@@ -168,7 +170,7 @@
           "Valid Setting :type"))
 
 (def ^:private Visibility
-  (s/enum :public :authenticated :admin :internal))
+  (s/enum :public :authenticated :settings-manager :admin :internal))
 
 (defmulti default-tag-for-type
   "Type tag that will be included in the Setting's metadata, so that the getter function will not cause reflection
@@ -224,6 +226,9 @@
    :munged-name s/Str
    :namespace   s/Symbol
    :description s/Any            ; description is validated via the macro, not schema
+   ;; Use `:doc` to include a map with additional documentation, for use when generating the environment variable docs
+   ;; from source. To exclude a setting from documenation, set to `false`. See metabase.cmd.env-var-dox.
+   :doc         s/Any
    :default     s/Any
    :type        Type             ; all values are stored in DB as Strings,
    :getter      clojure.lang.IFn ; different getters/setters take care of parsing/unparsing
@@ -232,7 +237,7 @@
    :sensitive?  s/Bool           ; is this sensitive (never show in plaintext), like a password? (default: false)
    :visibility  Visibility       ; where this setting should be visible (default: :admin)
    :cache?      s/Bool           ; should the getter always fetch this value "fresh" from the DB? (default: false)
-   :deprecated  (s/maybe s/Str)            ; if non-nil, contains the Metabase version in which this setting was deprecated
+   :deprecated  (s/maybe s/Str)  ; if non-nil, contains the Metabase version in which this setting was deprecated
 
    ;; whether this Setting can be Database-local or User-local. See [[metabase.models.setting]] docstring for more info.
    :database-local LocalOption
@@ -246,7 +251,8 @@
    ;; optional fn called whether to allow the getter to return a value. Useful for ensuring premium settings are not available to
    :enabled?    (s/maybe clojure.lang.IFn)})
 
-(defonce ^:private registered-settings
+(defonce ^{:doc "Map of loaded defsettings"}
+  registered-settings
   (atom {}))
 
 (defprotocol ^:private Resolvable
@@ -369,8 +375,13 @@
   (or (not *enforce-setting-access-checks*)
       (nil? api/*current-user-id*)
       api/*is-superuser?*
-      (has-advanced-setting-access?)
       (and
+       ;; Non-admin setting managers can only access settings that are not marked as admin-only
+       (not api/*is-superuser?*)
+       (has-advanced-setting-access?)
+       (not= (:visibility setting) :admin))
+      (and
+       ;; Non-admins can only access user-local settings not marked as admin-only
        (allows-user-local-values? setting)
        (not= (:visibility setting) :admin))))
 
@@ -752,6 +763,7 @@
                  :munged-name    munged-name
                  :namespace      setting-ns
                  :description    nil
+                 :doc            nil
                  :type           setting-type
                  :default        default
                  :on-change      nil
@@ -900,7 +912,18 @@
 
   ###### `:visibility`
 
-  `:public`, `:authenticated`, `:admin` (default), or `:internal`. Controls where this setting is visible
+  Controls where this setting is visibile, and who can update it. Possible values are:
+
+    Visibility       | Who Can See It?              | Who Can Update It?
+    ---------------- | ---------------------------- | --------------------
+    :public          | The entire world             | Admins and Settings Managers
+    :authenticated   | Logged-in Users              | Admins and Settings Managers
+    :settings-manager| Admins and Settings Managers | Admins and Settings Managers
+    :admin           | Admins                       | Admins
+    :internal        | Nobody                       | No one (usually for env-var-only settings)
+
+  'Settings Managers' are non-admin users with the 'settings' permission, which gives them access to the Settings page
+  in the Admin Panel.
 
   ###### `:getter`
 
@@ -1063,7 +1086,10 @@
 
   This is currently used by `GET /api/setting` ([[metabase.api.setting/GET_]]; admin-only; powers the Admin Settings
   page) so all admin-visible Settings should be included. We *do not* want to return env var values, since admins
-  are not allowed to modify them."
+  are not allowed to modify them.
+
+  For settings managers who are not admins, only the subset of settings with the :settings-manager visibility level
+  are returned."
   [& {:as options}]
   ;; ignore Database-local values, but not User-local values
   (binding [*database-local-values* nil]
@@ -1071,6 +1097,8 @@
      []
      (comp (filter (fn [setting]
                      (and (not= (:visibility setting) :internal)
+                          (or api/*is-superuser?*
+                              (not= (:visibility setting) :admin))
                           (not= (:database-local setting) :only))))
            (map #(m/mapply user-facing-info % options)))
      (sort-by :name (vals @registered-settings)))))

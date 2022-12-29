@@ -1,22 +1,25 @@
 (ns metabase.api.permissions
   "/api/permissions endpoints."
-  (:require [clojure.spec.alpha :as s]
-            [compojure.core :refer [DELETE GET POST PUT]]
-            [honeysql.helpers :as hh]
-            [metabase.api.common :as api]
-            [metabase.api.common.validation :as validation]
-            [metabase.api.permission-graph :as api.permission-graph]
-            [metabase.models :refer [PermissionsGroupMembership User]]
-            [metabase.models.permissions :as perms]
-            [metabase.models.permissions-group :as perms-group :refer [PermissionsGroup]]
-            [metabase.public-settings.premium-features :as premium-features]
-            [metabase.server.middleware.offset-paging :as mw.offset-paging]
-            [metabase.util :as u]
-            [metabase.util.i18n :refer [tru]]
-            [metabase.util.schema :as su]
-            schema.core
-            [toucan.db :as db]
-            [toucan.hydrate :refer [hydrate]]))
+  (:require
+   [clojure.spec.alpha :as s]
+   [compojure.core :refer [DELETE GET POST PUT]]
+   [honeysql.helpers :as hh]
+   [metabase.api.common :as api]
+   [metabase.api.common.validation :as validation]
+   [metabase.api.permission-graph :as api.permission-graph]
+   [metabase.models :refer [PermissionsGroupMembership User]]
+   [metabase.models.permissions :as perms]
+   [metabase.models.permissions-group
+    :as perms-group
+    :refer [PermissionsGroup]]
+   [metabase.public-settings.premium-features :as premium-features]
+   [metabase.server.middleware.offset-paging :as mw.offset-paging]
+   [metabase.util :as u]
+   [metabase.util.i18n :refer [tru]]
+   [metabase.util.schema :as su]
+   [schema.core]
+   [toucan.db :as db]
+   [toucan.hydrate :refer [hydrate]]))
 
 ;;; +----------------------------------------------------------------------------------------------------------------+
 ;;; |                                          PERMISSIONS GRAPH ENDPOINTS                                           |
@@ -205,6 +208,14 @@
                 :is_group_manager is_group_manager)
     (db/select-one PermissionsGroupMembership :id (:id old))))
 
+(api/defendpoint PUT "/membership/:group-id/clear"
+  "Remove all members from a `PermissionsGroup`."
+  [group-id]
+  (validation/check-manager-of-group group-id)
+  (api/check-404 (db/exists? PermissionsGroup :id group-id))
+  (db/delete! PermissionsGroupMembership :group_id group-id)
+  api/generic-204-no-content)
+
 (api/defendpoint DELETE "/membership/:id"
   "Remove a User from a PermissionsGroup (delete their membership)."
   [id]
@@ -213,33 +224,5 @@
     (validation/check-manager-of-group (:group_id membership))
     (db/delete! PermissionsGroupMembership :id id)
     api/generic-204-no-content))
-
-
-;;; ------------------------------------------- Execution Endpoints -------------------------------------------
-
-(api/defendpoint GET "/execution/graph"
-  "Fetch a graph of execution permissions."
-  []
-  (api/check-superuser)
-  (perms/execution-perms-graph))
-
-(api/defendpoint PUT "/execution/graph"
-  "Do a batch update of execution permissions by passing in a modified graph. The modified graph of the same
-  form as returned by the corresponding GET endpoint.
-
-  Revisions to the permissions graph are tracked. If you fetch the permissions graph and some other third-party
-  modifies it before you can submit you revisions, the endpoint will instead make no changes and return a
-  409 (Conflict) response. In this case, you should fetch the updated graph and make desired changes to that."
-  [:as {body :body}]
-  {body su/Map}
-  (api/check-superuser)
-  (let [graph (api.permission-graph/converted-json->graph ::api.permission-graph/execution-permissions-graph body)]
-    (when (= graph :clojure.spec.alpha/invalid)
-      (throw (ex-info (tru "Invalid execution permission graph: {0}"
-                           (s/explain-str ::api.permission-graph/execution-permissions-graph body))
-                      {:status-code 400
-                       :error       (s/explain-data ::api.permission-graph/execution-permissions-graph body)})))
-    (perms/update-execution-perms-graph! graph))
-  (perms/execution-perms-graph))
 
 (api/define-routes)

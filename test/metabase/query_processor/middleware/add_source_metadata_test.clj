@@ -1,11 +1,13 @@
 (ns metabase.query-processor.middleware.add-source-metadata-test
-  (:require [clojure.string :as str]
-            [clojure.test :refer :all]
-            [medley.core :as m]
-            [metabase.driver :as driver]
-            [metabase.query-processor :as qp]
-            [metabase.query-processor.middleware.add-source-metadata :as add-source-metadata]
-            [metabase.test :as mt]))
+  (:require
+   [clojure.string :as str]
+   [clojure.test :refer :all]
+   [medley.core :as m]
+   [metabase.driver :as driver]
+   [metabase.query-processor :as qp]
+   [metabase.query-processor.middleware.add-source-metadata
+    :as add-source-metadata]
+   [metabase.test :as mt]))
 
 (defn- add-source-metadata [query]
   (driver/with-driver :h2
@@ -331,7 +333,7 @@
             ;; the actual metadata this middleware should return. Doesn't have all the columns that come back from
             ;; `qp/query->expected-cols`
             expected-metadata (for [col metadata]
-                                (cond-> (dissoc col :description :source :visibility_type :options)
+                                (cond-> (dissoc col :description :source :visibility_type)
                                   ;; for some reason this middleware returns temporal fields with a `:default` unit,
                                   ;; whereas `query->expected-cols` does not return the unit. It ulimately makes zero
                                   ;; difference, so I haven't looked into why this is the case yet.

@@ -1,14 +1,16 @@
 (ns metabase.query-processor.util.add-alias-info-test
-  (:require [clojure.string :as str]
-            [clojure.test :refer :all]
-            [clojure.walk :as walk]
-            [metabase.driver :as driver]
-            [metabase.driver.h2 :as h2]
-            [metabase.models.field :refer [Field]]
-            [metabase.query-processor :as qp]
-            [metabase.query-processor.middleware.fix-bad-references :as fix-bad-refs]
-            [metabase.query-processor.util.add-alias-info :as add]
-            [metabase.test :as mt]))
+  (:require
+   [clojure.string :as str]
+   [clojure.test :refer :all]
+   [clojure.walk :as walk]
+   [metabase.driver :as driver]
+   [metabase.driver.h2 :as h2]
+   [metabase.models.field :refer [Field]]
+   [metabase.query-processor :as qp]
+   [metabase.query-processor.middleware.fix-bad-references
+    :as fix-bad-refs]
+   [metabase.query-processor.util.add-alias-info :as add]
+   [metabase.test :as mt]))
 
 (comment h2/keep-me)
 
@@ -62,14 +64,12 @@
                                                           ::add/source-table  ::add/source
                                                           ::add/source-alias  "Cat__NAME"
                                                           ::add/desired-alias "Cat__NAME"
-                                                          ::add/position      0
-                                                          :nested/outer       true}]]
+                                                          ::add/position      0}]]
                  :order-by     [[:asc [:field %categories.name {:join-alias         "Cat"
                                                                 ::add/source-table  ::add/source
                                                                 ::add/source-alias  "Cat__NAME"
                                                                 ::add/desired-alias "Cat__NAME"
-                                                                ::add/position      0
-                                                                :nested/outer       true}]]]
+                                                                ::add/position      0}]]]
                  :limit        1})
               (add-alias-info
                (mt/mbql-query venues
@@ -134,7 +134,6 @@
                                                                               ::add/source-table "Q2"}]]
                                    :strategy     :left-join}]
                    :fields       [[:field %products.category {:join-alias         "P1"
-                                                              :nested/outer       true
                                                               ::add/desired-alias "P1__CATEGORY"
                                                               ::add/position      0
                                                               ::add/source-alias  "P1__CATEGORY"
@@ -344,7 +343,7 @@
                                                                           ::add/position      0}]
                                               [:value 1 {:base_type         :type/Text
                                                          :coercion_strategy nil
-                                                         :database_type     "VARCHAR"
+                                                         :database_type     "CHARACTER VARYING"
                                                          :effective_type    :type/Text
                                                          :name              "CATEGORY"
                                                          :semantic_type     :type/Category}]]}]
@@ -407,8 +406,7 @@
                                                ::add/source-table  ::add/source
                                                ::add/source-alias  "COOL.double_price"
                                                ::add/desired-alias "COOL.COOL.double_price"
-                                               ::add/position      0
-                                               :nested/outer       true}]]
+                                               ::add/position      0}]]
                             {:aggregation [[:aggregation-options [:count] {:name               "COOL.count"
                                                                            ::add/position      1
                                                                            ::add/source-alias  "count"
@@ -535,7 +533,7 @@
                                             "Doohickey"
                                             {:base_type         :type/Text
                                              :coercion_strategy nil
-                                             :database_type     "VARCHAR"
+                                             :database_type     "CHARACTER VARYING"
                                              :effective_type    :type/Text
                                              :name              "CATEGORY"
                                              :semantic_type     :type/Category}]]}
@@ -545,7 +543,6 @@
                                             ::add/position      0
                                             ::add/source-alias  "Products_Renamed__ID"
                                             ::add/source-table  ::add/source
-                                            :nested/outer        true
                                             :join-alias         "Products Renamed"}]
                                           [:field
                                            "CC"
@@ -553,8 +550,7 @@
                                             ::add/position      1
                                             ::add/source-alias  "CC"
                                             ::add/source-table  ::add/source
-                                            :base-type          :type/Float
-                                            :nested/outer       true}]]
+                                            :base-type          :type/Float}]]
                            :limit        1})
                         (-> (mt/mbql-query orders
                               {:source-query {:source-table $$orders
@@ -592,13 +588,11 @@
                                                                        ::add/source-alias  "Name"
                                                                        ::add/desired-alias "Name_2"
                                                                        ::add/position      1}]]}
-                       :fields       [[:field name-id {:nested/outer       true
-                                                       ::add/source-table  ::add/source
+                       :fields       [[:field name-id {::add/source-table  ::add/source
                                                        ::add/source-alias  "NAME"
                                                        ::add/desired-alias "NAME"
                                                        ::add/position      0}]
-                                      [:field price-id {:nested/outer       true
-                                                        ::add/source-table  ::add/source
+                                      [:field price-id {::add/source-table  ::add/source
                                                         ::add/source-alias  "Name_2"
                                                         ::add/desired-alias "Name_2"
                                                         ::add/position      1}]]

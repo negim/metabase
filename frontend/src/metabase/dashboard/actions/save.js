@@ -6,7 +6,7 @@ import { createThunkAction } from "metabase/lib/redux";
 import Dashboards from "metabase/entities/dashboards";
 
 import { DashboardApi, CardApi } from "metabase/services";
-import { clickBehaviorIsValid } from "metabase-lib/lib/parameters/utils/click-behavior";
+import { clickBehaviorIsValid } from "metabase-lib/parameters/utils/click-behavior";
 
 import { getDashboardBeforeEditing } from "../selectors";
 
@@ -112,7 +112,6 @@ export const saveDashboardAndCards = createThunkAction(
           ({
             id,
             card_id,
-            action,
             row,
             col,
             size_x,
@@ -123,7 +122,6 @@ export const saveDashboardAndCards = createThunkAction(
           }) => ({
             id,
             card_id,
-            action,
             row,
             col,
             size_x,
@@ -140,7 +138,6 @@ export const saveDashboardAndCards = createThunkAction(
                   }) &&
                   // filter out mappings for deleted series
                   (!card_id ||
-                    action ||
                     card_id === mapping.card_id ||
                     _.findWhere(series, { id: mapping.card_id })),
               ),
@@ -158,12 +155,8 @@ export const saveDashboardAndCards = createThunkAction(
 
       await dispatch(Dashboards.actions.update(dashboard));
 
-      if (dashboard.is_app_page) {
-        dispatch(fetchDashboard(dashboard.id, window.location.search, true));
-      } else {
-        // make sure that we've fully cleared out any dirty state from editing (this is overkill, but simple)
-        dispatch(fetchDashboard(dashboard.id, null)); // disable using query parameters when saving
-      }
+      // make sure that we've fully cleared out any dirty state from editing (this is overkill, but simple)
+      dispatch(fetchDashboard(dashboard.id, null)); // disable using query parameters when saving
     };
   },
 );
