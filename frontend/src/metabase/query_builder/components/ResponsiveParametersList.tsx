@@ -1,8 +1,10 @@
-import React, { useCallback, useState, useMemo } from "react";
+import { useCallback, useState, useMemo } from "react";
 import { msgid, ngettext } from "ttag";
-import useIsSmallScreen from "metabase/hooks/use-is-small-screen";
+
 import Button from "metabase/core/components/Button";
-import { Parameter } from "metabase-types/api";
+import useIsSmallScreen from "metabase/hooks/use-is-small-screen";
+import type Question from "metabase-lib/v1/Question";
+import type { Parameter, ParameterId } from "metabase-types/api";
 
 import {
   FilterButton,
@@ -13,15 +15,21 @@ import {
 } from "./ResponsiveParametersList.styled";
 
 interface ResponsiveParametersListProps {
+  question: Question;
   parameters: Parameter[];
   setParameterValue: (parameterId: string, value: string) => void;
+  setParameterValueToDefault: (parameterId: ParameterId) => void;
   setParameterIndex: (parameterId: string, parameterIndex: number) => void;
+  enableParameterRequiredBehavior: boolean;
 }
 
 export const ResponsiveParametersList = ({
+  question,
   parameters,
   setParameterValue,
   setParameterIndex,
+  setParameterValueToDefault,
+  enableParameterRequiredBehavior,
 }: ResponsiveParametersListProps) => {
   const [mobileShowParameterList, setShowMobileParameterList] = useState(false);
   const isSmallScreen = useIsSmallScreen();
@@ -67,14 +75,16 @@ export const ResponsiveParametersList = ({
               borderless
               icon="close"
               onClick={handleFilterButtonClick}
-              iconSize={14}
             />
           </ParametersListHeader>
         )}
         <StyledParametersList
+          question={question}
           parameters={parameters}
           setParameterValue={setParameterValue}
           setParameterIndex={setParameterIndex}
+          setParameterValueToDefault={setParameterValueToDefault}
+          enableParameterRequiredBehavior={enableParameterRequiredBehavior}
           isEditing
           commitImmediately
         />

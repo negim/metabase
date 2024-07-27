@@ -1,20 +1,21 @@
-import React, { useCallback, useRef } from "react";
+import { useCallback, useRef } from "react";
 import { t } from "ttag";
 
-import Button from "metabase/core/components/Button";
+import DeleteDatabaseModal from "metabase/admin/databases/components/DeleteDatabaseModel/DeleteDatabaseModal";
+import {
+  useDiscardDatabaseFieldValuesMutation,
+  useRescanDatabaseFieldValuesMutation,
+  useSyncDatabaseSchemaMutation,
+} from "metabase/api";
 import ActionButton from "metabase/components/ActionButton";
 import ConfirmContent from "metabase/components/ConfirmContent";
 import ModalWithTrigger from "metabase/components/ModalWithTrigger";
-
+import Button from "metabase/core/components/Button";
+import Tables from "metabase/entities/tables";
+import { useDispatch } from "metabase/lib/redux";
 import { isSyncCompleted } from "metabase/lib/syncing";
-import {
-  checkDatabaseSupportsActions,
-  checkDatabaseActionsEnabled,
-} from "metabase/actions/utils";
-import DeleteDatabaseModal from "metabase/admin/databases/components/DeleteDatabaseModal.jsx";
-
-import type { Database as IDatabase, DatabaseId } from "metabase-types/api";
-import type Database from "metabase-lib/metadata/Database";
+import type Database from "metabase-lib/v1/metadata/Database";
+import type { DatabaseData, DatabaseId } from "metabase-types/api";
 
 import ModelActionsSection from "./ModelActionsSection";
 import ModelCachingControl from "./ModelCachingControl";
@@ -29,46 +30,43 @@ interface DatabaseEditAppSidebarProps {
   database: Database;
   isAdmin: boolean;
   isModelPersistenceEnabled: boolean;
-  updateDatabase: (database: { id: DatabaseId } & Partial<IDatabase>) => void;
-  syncDatabaseSchema: (databaseId: DatabaseId) => void;
-  dismissSyncSpinner: (databaseId: DatabaseId) => void;
-  rescanDatabaseFields: (databaseId: DatabaseId) => void;
-  discardSavedFieldValues: (databaseId: DatabaseId) => void;
-  deleteDatabase: (databaseId: DatabaseId, isDetailView: boolean) => void;
+  updateDatabase: (
+    database: { id: DatabaseId } & Partial<DatabaseData>,
+  ) => Promise<void>;
+  dismissSyncSpinner: (databaseId: DatabaseId) => Promise<void>;
+  deleteDatabase: (
+    databaseId: DatabaseId,
+    isDetailView: boolean,
+  ) => Promise<void>;
 }
 
 const DatabaseEditAppSidebar = ({
   database,
   updateDatabase,
   deleteDatabase,
-  syncDatabaseSchema,
   dismissSyncSpinner,
-  rescanDatabaseFields,
-  discardSavedFieldValues,
   isAdmin,
   isModelPersistenceEnabled,
 }: DatabaseEditAppSidebarProps) => {
   const discardSavedFieldValuesModal = useRef<any>();
   const deleteDatabaseModal = useRef<any>();
-
   const isEditingDatabase = !!database.id;
-
   const isSynced = isSyncCompleted(database);
   const hasModelActionsSection =
-    isEditingDatabase &&
-    checkDatabaseSupportsActions(database.getPlainObject());
+    isEditingDatabase && database.supportsActions();
   const hasModelCachingSection =
     isModelPersistenceEnabled && database.supportsPersistence();
 
-  const handleSyncDatabaseSchema = useCallback(
-    () => syncDatabaseSchema(database.id),
-    [database.id, syncDatabaseSchema],
-  );
+  const dispatch = useDispatch();
+  const [syncDatabaseSchema] = useSyncDatabaseSchemaMutation();
+  const [rescanDatabaseFieldValues] = useRescanDatabaseFieldValuesMutation();
+  const [discardDatabaseFieldValues] = useDiscardDatabaseFieldValuesMutation();
 
-  const handleReScanFieldValues = useCallback(
-    () => rescanDatabaseFields(database.id),
-    [database.id, rescanDatabaseFields],
-  );
+  const handleSyncDatabaseSchema = async () => {
+    await syncDatabaseSchema(database.id);
+    // FIXME remove when MetadataEditor uses RTK query directly to load tables
+    dispatch({ type: Tables.actionTypes.INVALIDATE_LISTS_ACTION });
+  };
 
   const handleDismissSyncSpinner = useCallback(
     () => dismissSyncSpinner(database.id),
@@ -82,11 +80,6 @@ const DatabaseEditAppSidebar = ({
         settings: { "database-enable-actions": nextValue },
       }),
     [database.id, updateDatabase],
-  );
-
-  const handleDiscardSavedFieldValues = useCallback(
-    () => discardSavedFieldValues(database.id),
-    [database.id, discardSavedFieldValues],
   );
 
   const handleDeleteDatabase = useCallback(
@@ -106,7 +99,6 @@ const DatabaseEditAppSidebar = ({
     <SidebarRoot>
       <SidebarContent data-testid="database-actions-panel">
         <SidebarGroup>
-          <SidebarGroup.Name>{t`Actions`}</SidebarGroup.Name>
           <SidebarGroup.List>
             {!isSynced && (
               <SidebarGroup.ListItem hasMarginTop={false}>
@@ -124,7 +116,7 @@ const DatabaseEditAppSidebar = ({
             </SidebarGroup.ListItem>
             <SidebarGroup.ListItem>
               <ActionButton
-                actionFn={handleReScanFieldValues}
+                actionFn={() => rescanDatabaseFieldValues(database.id)}
                 normalText={t`Re-scan field values now`}
                 activeText={t`Starting…`}
                 failedText={t`Failed to start scan`}
@@ -163,7 +155,7 @@ const DatabaseEditAppSidebar = ({
                   <ConfirmContent
                     title={t`Discard saved field values`}
                     onClose={handleSavedFieldsModalClose}
-                    onAction={handleDiscardSavedFieldValues}
+                    onAction={() => discardDatabaseFieldValues(database.id)}
                   />
                 </ModalWithTrigger>
               </SidebarGroup.ListItem>
@@ -190,9 +182,7 @@ const DatabaseEditAppSidebar = ({
       {hasModelActionsSection && (
         <ModelActionsSidebarContent>
           <ModelActionsSection
-            hasModelActionsEnabled={checkDatabaseActionsEnabled(
-              database.getPlainObject(),
-            )}
+            hasModelActionsEnabled={database.hasActionsEnabled()}
             onToggleModelActionsEnabled={handleToggleModelActionsEnabled}
           />
         </ModelActionsSidebarContent>
@@ -201,4 +191,5 @@ const DatabaseEditAppSidebar = ({
   );
 };
 
+// eslint-disable-next-line import/no-default-export -- deprecated usage
 export default DatabaseEditAppSidebar;

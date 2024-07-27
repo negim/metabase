@@ -1,96 +1,42 @@
-import _ from "underscore";
+import { t } from "ttag";
 
-import { createAction } from "metabase/lib/redux";
-
-import Questions from "metabase/entities/questions";
-
-import {
-  getPositionForNewDashCard,
-  DEFAULT_CARD_SIZE,
-} from "metabase/lib/dashboard_grid";
 import { createCard } from "metabase/lib/card";
 
-import { getVisualizationRaw } from "metabase/visualizations";
-import { ADD_CARD_TO_DASH } from "./core";
-import { fetchCardData } from "./data-fetching";
-import { loadMetadataForDashboard } from "./metadata";
+import { trackCardCreated } from "../analytics";
 
-export const MARK_NEW_CARD_SEEN = "metabase/dashboard/MARK_NEW_CARD_SEEN";
-export const markNewCardSeen = createAction(MARK_NEW_CARD_SEEN);
+import { addDashCardToDashboard } from "./cards-typed";
 
-function generateTemporaryDashcardId() {
-  return Math.random();
-}
+export const addActionToDashboard =
+  ({ dashId, tabId, action, displayType }) =>
+  dispatch => {
+    trackCardCreated("action", dashId);
 
-export const addCardToDashboard =
-  ({ dashId, cardId }) =>
-  async (dispatch, getState) => {
-    await dispatch(Questions.actions.fetch({ id: cardId }));
-    const card = Questions.selectors.getObject(getState(), {
-      entityId: cardId,
-    });
-    const { dashboards, dashcards } = getState().dashboard;
-    const dashboard = dashboards[dashId];
-    const existingCards = dashboard.ordered_cards
-      .map(id => dashcards[id])
-      .filter(dc => !dc.isRemoved);
-    const { visualization } = getVisualizationRaw([{ card }]);
-    const createdCardSize = visualization.minSize || DEFAULT_CARD_SIZE;
-    const dashcard = {
-      id: generateTemporaryDashcardId(),
-      dashboard_id: dashId,
-      card_id: card.id,
-      card: card,
-      series: [],
-      ...getPositionForNewDashCard(
-        existingCards,
-        createdCardSize.width,
-        createdCardSize.height,
-      ),
-      parameter_mappings: [],
-      visualization_settings: {},
+    const virtualActionsCard = {
+      ...createCard(),
+      id: action.model_id,
+      display: "action",
+      archived: false,
     };
-    dispatch(createAction(ADD_CARD_TO_DASH)(dashcard));
-    dispatch(fetchCardData(card, dashcard, { reload: true, clear: true }));
 
-    dispatch(loadMetadataForDashboard([dashcard]));
-  };
+    const buttonLabel = action.name ?? action.id ?? t`Click Me`;
 
-export const addDashCardToDashboard = function ({ dashId, dashcardOverrides }) {
-  return function (dispatch, getState) {
-    const { dashboards, dashcards } = getState().dashboard;
-    const dashboard = dashboards[dashId];
-    const existingCards = dashboard.ordered_cards
-      .map(id => dashcards[id])
-      .filter(dc => !dc.isRemoved);
-    const dashcard = {
-      id: generateTemporaryDashcardId(),
-      card_id: null,
-      card: null,
-      dashboard_id: dashId,
-      series: [],
-      ...getPositionForNewDashCard(existingCards),
-      parameter_mappings: [],
-      visualization_settings: {},
+    const dashcardOverrides = {
+      action: action.id ? action : null,
+      action_id: action.id,
+      card_id: action.model_id,
+      card: virtualActionsCard,
+      visualization_settings: {
+        actionDisplayType: displayType ?? "button",
+        virtual_card: virtualActionsCard,
+        "button.label": buttonLabel,
+      },
     };
-    _.extend(dashcard, dashcardOverrides);
-    dispatch(createAction(ADD_CARD_TO_DASH)(dashcard));
-  };
-};
 
-export const addTextDashCardToDashboard = function ({ dashId }) {
-  const virtualTextCard = createCard();
-  virtualTextCard.display = "text";
-  virtualTextCard.archived = false;
-
-  const dashcardOverrides = {
-    card: virtualTextCard,
-    visualization_settings: {
-      virtual_card: virtualTextCard,
-    },
+    dispatch(
+      addDashCardToDashboard({
+        dashId: dashId,
+        dashcardOverrides: dashcardOverrides,
+        tabId,
+      }),
+    );
   };
-  return addDashCardToDashboard({
-    dashId: dashId,
-    dashcardOverrides: dashcardOverrides,
-  });
-};

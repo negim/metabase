@@ -1,5 +1,5 @@
 import { createMockDashboard } from "metabase-types/api/mocks";
-import type { DashboardState } from "metabase-types/store";
+import type { DashboardState, StoreDashboard } from "metabase-types/store";
 
 export const createMockDashboardState = (
   opts: Partial<DashboardState> = {},
@@ -9,20 +9,43 @@ export const createMockDashboardState = (
   dashcards: {},
   dashcardData: {},
   parameterValues: {},
-  parameterValuesSearchCache: {},
+  draftParameterValues: {},
   loadingDashCards: {
-    dashcardIds: [],
     loadingIds: [],
     loadingStatus: "idle",
     startTime: null,
+    endTime: null,
   },
-  loadingControls: {},
-  isEditing: null,
+  loadingControls: {
+    isLoading: false,
+  },
+  editingDashboard: null,
   isAddParameterPopoverOpen: false,
+  isNavigatingBackToDashboard: false,
   slowCards: {},
   sidebar: {
     props: {},
   },
-  titleTemplateChange: null,
+  selectedTabId: null,
+  missingActionParameters: null,
+  autoApplyFilters: {
+    toastId: null,
+    toastDashboardId: null,
+  },
+  tabDeletions: {},
+  theme: "light",
   ...opts,
 });
+
+export function createMockStoreDashboard({
+  dashcards = [],
+  tabs,
+  ...opts
+}: Partial<StoreDashboard> = {}): StoreDashboard {
+  return {
+    ...createMockDashboard(opts),
+    dashcards,
+    tabs,
+    ...opts,
+  };
+}

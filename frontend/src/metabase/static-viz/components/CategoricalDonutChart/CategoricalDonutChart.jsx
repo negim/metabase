@@ -1,12 +1,13 @@
-import React from "react";
-import PropTypes from "prop-types";
-import { t } from "ttag";
 import { Group } from "@visx/group";
 import { Pie } from "@visx/shape";
 import { Text } from "@visx/text";
+import PropTypes from "prop-types";
+import { t } from "ttag";
+
 import { getTextColorForBackground } from "metabase/lib/colors";
-import { formatNumber, formatPercent } from "../../lib/numbers";
+
 import { DIMENSION_ACCESSORS } from "../../constants/accessors";
+import { formatNumber, formatPercent } from "../../lib/numbers";
 
 const propTypes = {
   data: PropTypes.array,
@@ -18,6 +19,7 @@ const propTypes = {
   settings: PropTypes.shape({
     metric: PropTypes.object,
     percent_visibility: PropTypes.oneOf(["off", "legend", "inside"]),
+    show_total: PropTypes.bool,
   }),
 };
 
@@ -60,9 +62,14 @@ const CategoricalDonutChart = ({
   const totalLabel = t`Total`.toUpperCase();
 
   const shouldShowLabels = settings?.percent_visibility === "inside";
+  const shouldShowTotal = settings?.show_total ?? true;
 
   return (
-    <svg width={layout.width} height={layout.height}>
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={layout.width}
+      height={layout.height}
+    >
       <Group top={centerY} left={centerX}>
         <Pie
           data={data}
@@ -105,26 +112,31 @@ const CategoricalDonutChart = ({
             })
           }
         </Pie>
-        <Group fontFamily={layout.font.family} fontWeight={layout.font.weight}>
-          <Text
-            y={-textCenter}
-            fill={layout.colors.textDark}
-            fontSize={layout.valueFontSize}
-            textAnchor="middle"
-            dominantBaseline="middle"
+        {shouldShowTotal && (
+          <Group
+            fontFamily={layout.font.family}
+            fontWeight={layout.font.weight}
           >
-            {formatNumber(totalValue, settings?.metric)}
-          </Text>
-          <Text
-            y={textCenter}
-            fill={layout.colors.textLight}
-            fontSize={layout.labelFontSize}
-            textAnchor="middle"
-            dominantBaseline="middle"
-          >
-            {totalLabel}
-          </Text>
-        </Group>
+            <Text
+              y={-textCenter}
+              fill={layout.colors.textDark}
+              fontSize={layout.valueFontSize}
+              textAnchor="middle"
+              dominantBaseline="middle"
+            >
+              {formatNumber(totalValue, settings?.metric)}
+            </Text>
+            <Text
+              y={textCenter}
+              fill={layout.colors.textLight}
+              fontSize={layout.labelFontSize}
+              textAnchor="middle"
+              dominantBaseline="middle"
+            >
+              {totalLabel}
+            </Text>
+          </Group>
+        )}
       </Group>
     </svg>
   );

@@ -2,34 +2,48 @@
   (:require
    [buddy.core.codecs :as codecs]
    [cheshire.core :as json]
+   [cheshire.generate :as json.generate]
    [clojure.core.memoize :as memoize]
-   [clojure.tools.logging :as log]
+   [clojure.spec.alpha :as s]
    [clojure.walk :as walk]
-   [metabase.db.connection :as mdb.connection]
-   [metabase.mbql.normalize :as mbql.normalize]
-   [metabase.mbql.schema :as mbql.s]
+   [malli.core :as mc]
+   [malli.error :as me]
+   [metabase.legacy-mbql.normalize :as mbql.normalize]
+   [metabase.legacy-mbql.schema :as mbql.s]
+   [metabase.lib.core :as lib]
+   [metabase.lib.metadata.protocols :as lib.metadata.protocols]
    [metabase.models.dispatch :as models.dispatch]
    [metabase.models.json-migration :as jm]
    [metabase.plugins.classloader :as classloader]
    [metabase.util :as u]
    [metabase.util.cron :as u.cron]
    [metabase.util.encryption :as encryption]
-   [metabase.util.i18n :refer [trs tru]]
+   [metabase.util.i18n :refer [tru]]
+   [metabase.util.log :as log]
+   [metabase.util.malli :as mu]
+   [metabase.util.malli.registry :as mr]
+   [methodical.core :as methodical]
    [potemkin :as p]
-   [schema.core :as s]
    [taoensso.nippy :as nippy]
-   [toucan.db :as db]
-   [toucan.models :as models])
+   [toucan2.core :as t2]
+   [toucan2.model :as t2.model]
+   [toucan2.protocols :as t2.protocols]
+   [toucan2.tools.before-insert :as t2.before-insert]
+   [toucan2.tools.hydrate :as t2.hydrate]
+   [toucan2.tools.identity-query :as t2.identity-query]
+   [toucan2.util :as t2.u])
   (:import
    (java.io BufferedInputStream ByteArrayInputStream DataInputStream)
    (java.sql Blob)
-   (java.util.zip GZIPInputStream)))
+   (java.util.zip GZIPInputStream)
+   (toucan2.instance Instance)))
+
+(set! *warn-on-reflection* true)
 
 (p/import-vars
  [models.dispatch
   toucan-instance?
   instance-of?
-  InstanceOf
   model
   instance])
 
@@ -43,10 +57,75 @@
 ;;; |                                               Toucan Extensions                                                |
 ;;; +----------------------------------------------------------------------------------------------------------------+
 
-(models/set-root-namespace! 'metabase.models)
+;;;; [[define-simple-hydration-method]] and [[define-batched-hydration-method]]
 
+(s/def ::define-hydration-method
+  (s/cat :fn-name       symbol?
+         :hydration-key keyword?
+         :docstring     string?
+         :fn-tail       (s/alt :arity-1 :clojure.core.specs.alpha/params+body
+                               :arity-n (s/+ (s/spec :clojure.core.specs.alpha/params+body)))))
 
-;;; types
+(defonce ^:private defined-hydration-methods
+  (atom {}))
+
+(defn- define-hydration-method [hydration-type fn-name hydration-key fn-tail]
+  {:pre [(#{:hydrate :batched-hydrate} hydration-type)]}
+  ;; Let's be EXTRA nice and make sure there are no duplicate hydration keys!
+  (let [fn-symb (symbol (str (ns-name *ns*)) (name fn-name))]
+    (when-let [existing-fn-symb (get @defined-hydration-methods hydration-key)]
+      (when (not= fn-symb existing-fn-symb)
+        (throw (ex-info (format "Hydration key %s already exists at %s" hydration-key existing-fn-symb)
+                        {:hydration-key       hydration-key
+                         :existing-definition existing-fn-symb}))))
+    (swap! defined-hydration-methods assoc hydration-key fn-symb))
+  `(do
+     (defn ~fn-name
+       ~@fn-tail)
+     ~(case hydration-type
+        :hydrate
+        `(methodical/defmethod t2.hydrate/simple-hydrate
+           [:default ~hydration-key]
+           [~'_model k# row#]
+           (assoc row# k# (~fn-name row#)))
+
+        :batched-hydrate
+        `(methodical/defmethod t2.hydrate/batched-hydrate
+           [:default ~hydration-key]
+           [~'_model ~'_k rows#]
+           (~fn-name rows#)))))
+
+(defmacro define-simple-hydration-method
+  "Define a Toucan hydration function (Toucan 1) or method (Toucan 2) to do 'simple' hydration (this function is called
+  for each individual object that gets hydrated). This helper is in place to make the switch to Toucan 2 easier to
+  accomplish. Toucan 2 uses multimethods instead of regular functions with `:hydrate` metadata. When we switch to
+  Toucan 2, we won't need to rewrite all of our hydration methods at once -- we can just change the implementation of
+  this function, and eventually remove it entirely."
+  {:style/indent :defn}
+  [fn-name hydration-key & fn-tail]
+  (define-hydration-method :hydrate fn-name hydration-key fn-tail))
+
+(s/fdef define-simple-hydration-method
+  :args ::define-hydration-method
+  :ret  any?)
+
+(defmacro define-batched-hydration-method
+  "Like [[define-simple-hydration-method]], but defines a Toucan 'batched' hydration function (Toucan 1) or
+  method (Toucan 2). 'Batched' hydration means this function can be used to hydrate a sequence of objects in one call.
+
+  See docstring for [[define-simple-hydration-method]] for more information as to why this macro exists."
+  {:style/indent :defn}
+  [fn-name hydration-key & fn-tail]
+  (define-hydration-method :batched-hydrate fn-name hydration-key fn-tail))
+
+(s/fdef define-batched-hydration-method
+  :args ::define-hydration-method
+  :ret  any?)
+
+;;; +----------------------------------------------------------------------------------------------------------------+
+;;; |                                               Toucan 2 Extensions                                              |
+;;; +----------------------------------------------------------------------------------------------------------------+
+;; --- transforms methods
 
 (defn json-in
   "Default in function for columns given a Toucan type `:json`. Serializes object as JSON."
@@ -60,7 +139,7 @@
     (try
       (json/parse-string s keywordize-keys?)
       (catch Throwable e
-        (log/error e (str (trs "Error parsing JSON")))
+        (log/error e "Error parsing JSON")
         s))
     s))
 
@@ -75,18 +154,47 @@
   [obj]
   (json-out obj false))
 
-(models/add-type! :json
-  :in  json-in
-  :out json-out-with-keywordization)
+(def transform-json
+  "Transform for json."
+  {:in  json-in
+   :out json-out-with-keywordization})
 
-(models/add-type! :json-no-keywordization
-  :in  json-in
-  :out json-out-without-keywordization)
+(defn- serialize-mlv2-query
+  "Saving MLv2 queries​ we can assume MLv2 queries are normalized enough already, but remove the metadata provider before
+  saving it, because it's not something that lends itself well to serialization."
+  [query]
+  (dissoc query :lib/metadata))
 
-;; `metabase-query` type is for *outer* queries like Card.dataset_query. Normalizes them on the way in & out
-(defn- maybe-normalize [query]
-  (cond-> query
-    (seq query) mbql.normalize/normalize))
+(defn- deserialize-mlv2-query
+  "Reading MLv2 queries​: normalize them, then attach a MetadataProvider based on their Database."
+  [query]
+  (let [metadata-provider (if (lib.metadata.protocols/metadata-provider? (:lib/metadata query))
+                            ;; in case someone passes in an already-normalized query to [[maybe-normalize-query]] below,
+                            ;; preserve the existing metadata provider.
+                            (:lib/metadata query)
+                            ((requiring-resolve 'metabase.lib.metadata.jvm/application-database-metadata-provider)
+                             (u/the-id (some #(get query %) [:database "database"]))))]
+    (lib/query metadata-provider query)))
+
+(mu/defn maybe-normalize-query
+  "For top-level query maps like `Card.dataset_query`. Normalizes them on the way in & out."
+  [in-or-out :- [:enum :in :out]
+   query]
+  (letfn [(normalize [query]
+            (let [f (if (= (lib/normalized-query-type query) :mbql/query)
+                      ;; MLv2 queries
+                      (case in-or-out
+                        :in  serialize-mlv2-query
+                        :out deserialize-mlv2-query)
+                      ;; legacy queries: just normalize them with the legacy normalization code for now... in the near
+                      ;; future we'll probably convert to MLv2 before saving so everything in the app DB is MLv2
+                      (case in-or-out
+                        :in  mbql.normalize/normalize
+                        :out mbql.normalize/normalize))]
+              (f query)))]
+    (cond-> query
+      (and (map? query) (seq query))
+      normalize)))
 
 (defn catch-normalization-exceptions
   "Wraps normalization fn `f` and returns a version that gracefully handles Exceptions during normalization. When
@@ -97,13 +205,8 @@
     (try
       (doall (f query))
       (catch Throwable e
-        (log/error e (tru "Unable to normalize:") "\n"
-                   (u/pprint-to-str 'red query))
+        (log/errorf e "Unable to normalize:\n%s" (u/pprint-to-str 'red query))
         nil))))
-
-(models/add-type! :metabase-query
-  :in  (comp json-in maybe-normalize)
-  :out (comp (catch-normalization-exceptions maybe-normalize) json-out-with-keywordization))
 
 (defn normalize-parameters-list
   "Normalize `parameters` or `parameter-mappings` when coming out of the application database or in via an API request."
@@ -111,32 +214,73 @@
   (or (mbql.normalize/normalize-fragment [:parameters] parameters)
       []))
 
-(models/add-type! :parameters-list
-  :in  (comp json-in normalize-parameters-list)
-  :out (comp (catch-normalization-exceptions normalize-parameters-list) json-out-with-keywordization))
+(def transform-metabase-query
+  "Transform for metabase-query."
+  {:in  (comp json-in (partial maybe-normalize-query :in))
+   :out (comp (catch-normalization-exceptions (partial maybe-normalize-query :out)) json-out-without-keywordization)})
 
-(def ^:private MetricSegmentDefinition
-  {(s/optional-key :filter)      (s/maybe mbql.s/Filter)
-   (s/optional-key :aggregation) (s/maybe [mbql.s/Aggregation])
-   s/Keyword                     s/Any})
+(def transform-parameters-list
+  "Transform for parameters list."
+  {:in  (comp json-in normalize-parameters-list)
+   :out (comp (catch-normalization-exceptions normalize-parameters-list) json-out-with-keywordization)})
 
-(def ^:private ^{:arglists '([definition])} validate-metric-segment-definition
-  (s/validator MetricSegmentDefinition))
+(def transform-field-ref
+  "Transform field refs"
+  {:in  json-in
+   :out (comp (catch-normalization-exceptions mbql.normalize/normalize-field-ref) json-out-with-keywordization)})
 
-;; `metric-segment-definition` is, predictably, for Metric/Segment `:definition`s, which are just the inner MBQL query
-(defn- normalize-metric-segment-definition [definition]
-  (when (seq definition)
-    (u/prog1 (mbql.normalize/normalize-fragment [:query] definition)
-      (validate-metric-segment-definition <>))))
+(defn- result-metadata-out
+  "Transform the Card result metadata as it comes out of the DB. Convert columns to keywords where appropriate."
+  [metadata]
+  ;; TODO -- can we make this whole thing a lazy seq?
+  (when-let [metadata (not-empty (json-out-with-keywordization metadata))]
+    (seq (map mbql.normalize/normalize-source-metadata metadata))))
 
-;; For inner queries like those in Metric definitions
-(models/add-type! :metric-segment-definition
-  :in  (comp json-in normalize-metric-segment-definition)
-  :out (comp (catch-normalization-exceptions normalize-metric-segment-definition) json-out-with-keywordization))
+(def transform-result-metadata
+  "Transform for card.result_metadata like columns."
+  {:in  json-in
+   :out result-metadata-out})
 
-(defn- normalize-visualization-settings [viz-settings]
-  ;; frontend uses JSON-serialized versions of MBQL clauses as keys in `:column_settings`; we need to normalize them
-  ;; to modern MBQL clauses so things work correctly
+(def transform-keyword
+  "Transform for keywords."
+  {:in  u/qualified-name
+   :out keyword})
+
+(def transform-json-no-keywordization
+  "Transform for json-no-keywordization"
+  {:in  json-in
+   :out json-out-without-keywordization})
+
+(def encrypted-json-in
+  "Serialize encrypted json."
+  (comp encryption/maybe-encrypt json-in))
+
+(defn encrypted-json-out
+  "Deserialize encrypted json."
+  [v]
+  (let [decrypted (encryption/maybe-decrypt v)]
+    (try
+      (json/parse-string decrypted true)
+      (catch Throwable e
+        (if (or (encryption/possibly-encrypted-string? decrypted)
+                (encryption/possibly-encrypted-bytes? decrypted))
+          (log/error e "Could not decrypt encrypted field! Have you forgot to set MB_ENCRYPTION_SECRET_KEY?")
+          (log/error e "Error parsing JSON"))  ; same message as in `json-out`
+        v))))
+
+;; cache the decryption/JSON parsing because it's somewhat slow (~500µs vs ~100µs on a *fast* computer)
+;; cache the decrypted JSON for one hour
+(def ^:private cached-encrypted-json-out (memoize/ttl encrypted-json-out :ttl/threshold (* 60 60 1000)))
+
+(def transform-encrypted-json
+  "Transform for encrypted json."
+  {:in  encrypted-json-in
+   :out cached-encrypted-json-out})
+
+(defn normalize-visualization-settings
+  "The frontend uses JSON-serialized versions of MBQL clauses as keys in `:column_settings`. This normalizes them
+   to modern MBQL clauses so things work correctly."
+  [viz-settings]
   (letfn [(normalize-column-settings-key [k]
             (some-> k u/qualified-name json/parse-string mbql.normalize/normalize json/generate-string))
           (normalize-column-settings [column-settings]
@@ -150,8 +294,14 @@
           (normalize-mbql-clauses [form]
             (walk/postwalk
              (fn [form]
-               (cond-> form
-                 (mbql-field-clause? form) mbql.normalize/normalize))
+               (try
+                 (cond-> form
+                   (mbql-field-clause? form) mbql.normalize/normalize)
+                 (catch Exception e
+                   (log/warnf "Unable to normalize visualization-settings part %s: %s"
+                              (u/pprint-to-str 'red form)
+                              (ex-message e))
+                   form)))
              form))]
     (cond-> (walk/keywordize-keys (dissoc viz-settings "column_settings" "graph.metrics"))
       (get viz-settings "column_settings") (assoc :column_settings (normalize-column-settings (get viz-settings "column_settings")))
@@ -166,12 +316,16 @@
 
 (defmethod ^:private migrate-viz-settings* [1 2] [viz-settings _]
   (let [{percent? :pie.show_legend_perecent ;; [sic]
-         legend?  :pie.show_legend} viz-settings]
-    (if-let [new-value (cond
-                         legend?  "inside"
-                         percent? "legend")]
-      (assoc viz-settings :pie.percent_visibility new-value)
-      viz-settings))) ;; if nothing was explicitly set don't default to "off", let the FE deal with it
+         legend?  :pie.show_legend} viz-settings
+        new-visibility              (cond
+                                      legend?  "inside"
+                                      percent? "legend")
+        new-linktype                (when (= "page" (-> viz-settings :click_behavior :linkType))
+                                      "dashboard")]
+    (cond-> viz-settings
+      ;; if nothing was explicitly set don't default to "off", let the FE deal with it
+      new-visibility (assoc :pie.percent_visibility new-visibility)
+      new-linktype   (assoc-in [:click_behavior :linkType] new-linktype))))
 
 (defn- migrate-viz-settings
   [viz-settings]
@@ -182,30 +336,46 @@
 ;; migrate-viz settings was introduced with v. 2, so we'll never be in a situation where we can downgrade from 2 to 1.
 ;; See sample code in SHA d597b445333f681ddd7e52b2e30a431668d35da8
 
-(models/add-type! :visualization-settings
-  :in  (comp json-in migrate-viz-settings)
-  :out (comp migrate-viz-settings normalize-visualization-settings json-out-without-keywordization))
+(def transform-visualization-settings
+  "Transform for viz-settings."
+  {:in  (comp json-in migrate-viz-settings)
+   :out (comp migrate-viz-settings normalize-visualization-settings json-out-without-keywordization)})
 
-;; json-set is just like json but calls `set` on it when coming out of the DB. Intended for storing things like a
-;; permissions set
-(models/add-type! :json-set
-  :in  json-in
-  :out #(some-> % json-out-with-keywordization set))
+(def ^{:arglists '([s])} ^:private validate-cron-string
+  (let [validator (mc/validator u.cron/CronScheduleString)]
+    (partial mu/validate-throw validator)))
 
-(def ^:private encrypted-json-in  (comp encryption/maybe-encrypt json-in))
-(def ^:private encrypted-json-out (comp json-out-with-keywordization encryption/maybe-decrypt))
+(def transform-cron-string
+  "Transform for encrypted json."
+  {:in  validate-cron-string
+   :out identity})
 
-;; cache the decryption/JSON parsing because it's somewhat slow (~500µs vs ~100µs on a *fast* computer)
-;; cache the decrypted JSON for one hour
-(def ^:private cached-encrypted-json-out (memoize/ttl encrypted-json-out :ttl/threshold (* 60 60 1000)))
+(def ^:private LegacyMetricSegmentDefinition
+  [:map
+   [:filter      {:optional true} [:maybe mbql.s/Filter]]
+   [:aggregation {:optional true} [:maybe [:sequential ::mbql.s/Aggregation]]]])
 
-(models/add-type! :encrypted-json
-  :in  encrypted-json-in
-  :out cached-encrypted-json-out)
+(def ^:private ^{:arglists '([definition])} validate-legacy-metric-segment-definition
+  (let [explainer (mr/explainer LegacyMetricSegmentDefinition)]
+    (fn [definition]
+      (if-let [error (explainer definition)]
+        (let [humanized (me/humanize error)]
+          (throw (ex-info (tru "Invalid Metric or Segment: {0}" (pr-str humanized))
+                          {:error     error
+                           :humanized humanized})))
+        definition))))
 
-(models/add-type! :encrypted-text
-  :in  encryption/maybe-encrypt
-  :out encryption/maybe-decrypt)
+;; `metric-segment-definition` is, predictably, for Metric/Segment `:definition`s, which are just the inner MBQL query
+(defn- normalize-legacy-metric-segment-definition [definition]
+  (when (seq definition)
+    (u/prog1 (mbql.normalize/normalize-fragment [:query] definition)
+      (validate-legacy-metric-segment-definition <>))))
+
+
+(def transform-legacy-metric-segment-definition
+  "Transform for inner queries like those in Metric definitions."
+  {:in  (comp json-in normalize-legacy-metric-segment-definition)
+   :out (comp (catch-normalization-exceptions normalize-legacy-metric-segment-definition) json-out-with-keywordization)})
 
 (defn- blob->bytes [^Blob b]
   (.getBytes ^Blob b 0 (.length ^Blob b)))
@@ -215,9 +385,10 @@
     (blob->bytes v)
     v))
 
-(models/add-type! :secret-value
-  :in  (comp encryption/maybe-encrypt-bytes codecs/to-bytes)
-  :out (comp encryption/maybe-decrypt maybe-blob->bytes))
+(def transform-secret-value
+  "Transform for secret value."
+  {:in  (comp encryption/maybe-encrypt-bytes codecs/to-bytes)
+   :out (comp encryption/maybe-decrypt maybe-blob->bytes)})
 
 (defn decompress
   "Decompress `compressed-bytes`."
@@ -230,25 +401,13 @@
                 data-in (DataInputStream. gz-in)]
       (nippy/thaw-from-in! data-in))))
 
-(models/add-type! :compressed
-  :in  identity
-  :out decompress)
+#_{:clj-kondo/ignore [:unused-public-var]}
+(def transform-compressed
+  "Transform for compressed fields."
+  {:in identity
+   :out decompress})
 
-(defn- validate-cron-string [s]
-  (s/validate (s/maybe u.cron/CronScheduleString) s))
-
-(models/add-type! :cron-string
-  :in  validate-cron-string
-  :out identity)
-
-;; Toucan ships with a Keyword type, but on columns that are marked 'TEXT' it doesn't work properly since the values
-;; might need to get de-CLOB-bered first. So replace the default Toucan `:keyword` implementation with one that
-;; handles those cases.
-(models/add-type! :keyword
-  :in  u/qualified-name
-  :out keyword)
-
-;;; properties
+;; --- predefined hooks
 
 (defn now
   "Return a HoneySQL form for a SQL function call to get current moment in time. Currently this is `now()` for Postgres
@@ -256,28 +415,47 @@
   max (nanosecond) resolution)."
   []
   (classloader/require 'metabase.driver.sql.query-processor)
-  ((resolve 'metabase.driver.sql.query-processor/current-datetime-honeysql-form) (mdb.connection/db-type)))
+  (let [db-type ((requiring-resolve 'metabase.db/db-type))]
+   ((resolve 'metabase.driver.sql.query-processor/current-datetime-honeysql-form) db-type)))
 
 (defn- add-created-at-timestamp [obj & _]
   (cond-> obj
     (not (:created_at obj)) (assoc :created_at (now))))
 
-(defn- add-updated-at-timestamp [obj & _]
-  (cond-> obj
-    (not (:updated_at obj)) (assoc :updated_at (now))))
+(defn- add-updated-at-timestamp [obj]
+  ;; don't stomp on `:updated_at` if it's already explicitly specified.
+  (let [changes-already-include-updated-at? (if (t2/instance? obj)
+                                              (:updated_at (t2/changes obj))
+                                              (:updated_at obj))]
+    (cond-> obj
+      (not changes-already-include-updated-at?) (assoc :updated_at (now)))))
 
-(models/add-property! :timestamped?
-  :insert (comp add-created-at-timestamp add-updated-at-timestamp)
-  :update add-updated-at-timestamp)
 
-;; like `timestamped?`, but for models that only have an `:created_at` column
-(models/add-property! :created-at-timestamped?
-  :insert add-created-at-timestamp)
+(t2/define-before-insert :hook/timestamped?
+  [instance]
+  (-> instance
+      add-updated-at-timestamp
+      add-created-at-timestamp))
 
-;; like `timestamped?`, but for models that only have an `:updated_at` column
-(models/add-property! :updated-at-timestamped?
-  :insert add-updated-at-timestamp
-  :update add-updated-at-timestamp)
+(t2/define-before-update :hook/timestamped?
+  [instance]
+  (-> instance
+      add-updated-at-timestamp))
+
+(t2/define-before-insert :hook/created-at-timestamped?
+  [instance]
+  (-> instance
+      add-created-at-timestamp))
+
+(t2/define-before-insert :hook/updated-at-timestamped?
+  [instance]
+  (-> instance
+      add-updated-at-timestamp))
+
+(t2/define-before-update :hook/updated-at-timestamped?
+  [instance]
+  (-> instance
+      add-updated-at-timestamp))
 
 (defn- add-entity-id [obj & _]
   (if (or (contains? obj :entity_id)
@@ -287,21 +465,45 @@
     obj
     (assoc obj :entity_id (u/generate-nano-id))))
 
-(models/add-property! :entity_id
-  :insert add-entity-id)
+(t2/define-before-insert :hook/entity-id
+  [instance]
+  (-> instance
+      add-entity-id))
+
+(methodical/prefer-method! #'t2.before-insert/before-insert :hook/timestamped? :hook/entity-id)
+(methodical/prefer-method! #'t2.before-insert/before-insert :hook/updated-at-timestamped? :hook/entity-id)
+
+;; --- helper fns
+(defn changes-with-pk
+  "The row merged with the changes in pre-update hooks.
+  This is to match the input of pre-update for toucan1 methods"
+  [row]
+  (t2.protocols/with-current row (merge (t2.model/primary-key-values-map row)
+                                        (t2.protocols/changes row))))
+
+(defn do-after-select
+  "Do [[toucan2.tools.after-select]] stuff for row map `object` using methods for `modelable`."
+  [modelable row-map]
+  {:pre [(map? row-map)]}
+  (let [model (t2/resolve-model modelable)]
+    (try
+      (t2/select-one model (t2.identity-query/identity-query [row-map]))
+      (catch Throwable e
+        (throw (ex-info (format "Error doing after-select for model %s: %s" model (ex-message e))
+                        {:model model}
+                        e))))))
 
 ;;; +----------------------------------------------------------------------------------------------------------------+
 ;;; |                                             New Permissions Stuff                                              |
 ;;; +----------------------------------------------------------------------------------------------------------------+
-
-(defn dispatch-on-model
+(def ^{:arglists '([x & _args])} dispatch-on-model
   "Helper dispatch function for multimethods. Dispatches on the first arg, using [[models.dispatch/model]]."
-  [x & _args]
-  (models.dispatch/model x))
+  ;; make sure model namespace gets loaded e.g. `:model/Database` should load `metabase.model.database` if needed.
+  (comp t2/resolve-model t2.u/dispatch-on-first-arg))
 
 (defmulti perms-objects-set
-  "Return a set of permissions object paths that a user must have access to in order to access this object. This should be
-  something like
+  "Return a set of permissions object paths that a user must have access to in order to access this object. This should
+  be something like
 
     #{\"/db/1/schema/public/table/20/\"}
 
@@ -335,8 +537,15 @@
   *  `(partial current-user-has-full-permissions? :write)` (you must also implement [[perms-objects-set]] to use this)
   *  `(partial current-user-has-partial-permissions? :write)` (you must also implement [[perms-objects-set]] to use
       this)"
-  {:arglists '([instance] [model pk]), :hydrate :can_write}
+  {:arglists '([instance] [model pk])}
   dispatch-on-model)
+
+#_{:clj-kondo/ignore [:unused-private-var]}
+(define-simple-hydration-method ^:private hydrate-can-write
+  :can_write
+  "Hydration method for `:can_write`."
+  [instance]
+  (can-write? instance))
 
 (defmulti can-create?
   "NEW! Check whether or not current user is allowed to CREATE a new instance of `model` with properties in map
@@ -359,7 +568,7 @@
   "NEW! Check whether or not the current user is allowed to update an object and by updating properties to values in
    the `changes` map. This is equivalent to checking whether you're allowed to perform
 
-    (toucan.db/update! model id changes)
+    (toucan2.core/update! model id changes)
 
   This method is appropriate for powering `PUT` API endpoints. Like [[can-create?]] this method was added YEARS after
   most of the current API endpoints were written, so it is used in very few places, and this logic is determined ad-hoc
@@ -389,7 +598,7 @@
 (defn- check-perms-with-fn
   ([fn-symb read-or-write a-model object-id]
    (or (current-user-has-root-permissions?)
-       (check-perms-with-fn fn-symb read-or-write (db/select-one a-model (models/primary-key a-model) object-id))))
+       (check-perms-with-fn fn-symb read-or-write (t2/select-one a-model (first (t2/primary-keys a-model)) object-id))))
 
   ([fn-symb read-or-write object]
    (and object
@@ -467,28 +676,65 @@
   [_model _m]
   (superuser?))
 
+;;;; [[to-json]]
 
-;;;; redefs
+(methodical/defmulti to-json
+  "Serialize an `instance` to JSON."
+  {:arglists            '([instance json-generator])
+   :defmethod-arities   #{2}
+   :dispatch-value-spec (some-fn keyword? symbol?)} ; dispatch value should be either keyword model name or symbol
+  t2.u/dispatch-on-first-arg)
 
-;;; swap out [[models/defmodel]] with a special magical version that avoids redefining stuff if the definition has not
-;;; changed at all. This is important to make the stuff in [[models.dispatch]] work properly, since we're dispatching
-;;; off of the model objects themselves e.g. [[metabase.models.user/User]] -- it is important that they do not change
-;;;
-;;; This code is temporary until the switch to Toucan 2.
+(methodical/defmethod to-json :default
+  "Default method for encoding instances of a Toucan model to JSON."
+  [instance json-generator]
+  (json.generate/encode-map instance json-generator))
 
-(defonce ^:private original-defmodel @(resolve `models/defmodel))
+(json.generate/add-encoder
+ Instance
+ #'to-json)
 
-(defmacro ^:private defmodel [model & args]
-  (let [varr           (ns-resolve *ns* model)
-        existing-hash  (some-> varr meta ::defmodel-hash)
-        has-same-hash? (= existing-hash (hash &form))]
-    (when has-same-hash?
-      (println model "has not changed, skipping redefinition"))
-    (when-not has-same-hash?
-      `(do
-         ~(apply original-defmodel &form &env model args)
-         (alter-meta! (var ~model) assoc ::defmodel-hash ~(hash &form))))))
+;;;; etc
 
-(alter-var-root #'models/defmodel (constantly @#'defmodel))
-(alter-meta! #'models/defmodel (fn [mta]
-                                 (merge mta (select-keys (meta #'defmodel) [:file :line :column :ns]))))
+;;; Trigger errors when hydrate encounters a key that has no corresponding method defined.
+(reset! t2.hydrate/global-error-on-unknown-key true)
+
+(methodical/defmethod t2.hydrate/fk-keys-for-automagic-hydration :default
+  "In Metabase the FK key used for automagic hydration should use underscores (work around upstream Toucan 2 issue)."
+  [_original-model dest-key _hydrated-key]
+  [(u/->snake_case_en (keyword (str (name dest-key) "_id")))])
+
+(mu/defn instances-with-hydrated-data
+  "Helper function to write batched hydrations.
+  Assoc to each `instances` a key `hydration-key` with data from calling `instance-key->hydrated-data-fn` by `instance-key`.
+
+    (instances-with-hydrated-data
+      (t2/select :model/Database)
+      :tables
+      #(t2/select-fn->fn :db_id identity :model/Table)
+      :id)
+    ;; => [{:id 1 :tables [...tables-from-db-1]}
+           {:id 2 :tables [...tables-from-db-2]}]
+
+  - key->hydrated-items-fn: is a function that returns a map with key is `instance-key` and value is the hydrated data of that instance."
+  [instances                      :- [:sequential :any]
+   hydration-key                  :- :keyword
+   instance-key->hydrated-data-fn :- fn?
+   instance-key                   :- :keyword
+   & [{:keys [default] :as _options}]]
+  (when (seq instances)
+    (let [key->hydrated-items (instance-key->hydrated-data-fn)]
+      (for [item instances]
+        (when item
+          (assoc item hydration-key (get key->hydrated-items (get item instance-key) default)))))))
+
+(defmulti exclude-internal-content-hsql
+  "Returns a HoneySQL expression to exclude instances of the model that were created automatically as part of internally
+   used content, such as Metabase Analytics, the sample database, or the sample dashboard. If a `table-alias` (string
+   or keyword) is provided any columns will have a table alias in the returned expression."
+  {:arglists '([model & {:keys [table-alias]}])}
+  dispatch-on-model)
+
+(defmethod exclude-internal-content-hsql :default
+  [_model & _]
+  [:= [:inline 1] [:inline 1]])

@@ -1,11 +1,14 @@
-import React, { useCallback, useState } from "react";
-import { User } from "metabase-types/api";
-import SearchBar from "../SearchBar";
-import ProfileLink from "../ProfileLink";
+import { useCallback, useState } from "react";
+
+import { SearchBar } from "metabase/nav/components/search/SearchBar";
+import { Flex } from "metabase/ui";
+
 import CollectionBreadcrumbs from "../../containers/CollectionBreadcrumbs";
 import QuestionLineage from "../../containers/QuestionLineage";
-import AppBarToggle from "./AppBarToggle";
-import AppBarLogo from "./AppBarLogo";
+import { ProfileLink } from "../ProfileLink";
+import { SearchButton } from "../search/SearchButton";
+
+import { AppBarLogo } from "./AppBarLogo";
 import {
   AppBarHeader,
   AppBarLogoContainer,
@@ -16,12 +19,14 @@ import {
   AppBarSubheader,
   AppBarToggleContainer,
 } from "./AppBarSmall.styled";
+import { AppBarToggle } from "./AppBarToggle";
 
 export interface AppBarSmallProps {
-  currentUser: User;
   isNavBarOpen?: boolean;
   isNavBarEnabled?: boolean;
+  isLogoVisible?: boolean;
   isSearchVisible?: boolean;
+  isEmbedded?: boolean;
   isProfileLinkVisible?: boolean;
   isCollectionPathVisible?: boolean;
   isQuestionLineageVisible?: boolean;
@@ -31,10 +36,11 @@ export interface AppBarSmallProps {
 }
 
 const AppBarSmall = ({
-  currentUser,
   isNavBarOpen,
   isNavBarEnabled,
+  isLogoVisible,
   isSearchVisible,
+  isEmbedded,
   isProfileLinkVisible,
   isCollectionPathVisible,
   isQuestionLineageVisible,
@@ -46,11 +52,9 @@ const AppBarSmall = ({
 
   const [isSearchActive, setSearchActive] = useState(false);
   const isInfoVisible = isQuestionLineageVisible || isCollectionPathVisible;
+  const isHeaderVisible =
+    isLogoVisible || isNavBarEnabled || isSearchVisible || isProfileLinkVisible;
   const isSubheaderVisible = !isNavBarVisible && isInfoVisible;
-
-  const handleLogoClick = useCallback(() => {
-    onCloseNavbar();
-  }, [onCloseNavbar]);
 
   const handleSearchActive = useCallback(() => {
     setSearchActive(true);
@@ -63,34 +67,46 @@ const AppBarSmall = ({
 
   return (
     <AppBarRoot>
-      <AppBarHeader isSubheaderVisible={isSubheaderVisible}>
-        <AppBarMainContainer>
-          <AppBarToggleContainer>
-            {isNavBarEnabled && (
+      {isHeaderVisible && (
+        <AppBarHeader isSubheaderVisible={isSubheaderVisible}>
+          <AppBarMainContainer>
+            <AppBarToggleContainer>
               <AppBarToggle
+                isSmallAppBar
+                isNavBarEnabled={isNavBarEnabled}
                 isNavBarOpen={isNavBarVisible}
                 onToggleClick={onToggleNavbar}
               />
+            </AppBarToggleContainer>
+            <AppBarSearchContainer>
+              {isSearchVisible &&
+                (isEmbedded ? (
+                  <SearchBar
+                    onSearchActive={handleSearchActive}
+                    onSearchInactive={handleSearchInactive}
+                  />
+                ) : (
+                  <Flex justify="end">
+                    <SearchButton />
+                  </Flex>
+                ))}
+            </AppBarSearchContainer>
+            {isProfileLinkVisible && (
+              <AppBarProfileLinkContainer>
+                <ProfileLink onLogout={onLogout} />
+              </AppBarProfileLinkContainer>
             )}
-          </AppBarToggleContainer>
-          <AppBarSearchContainer>
-            {isSearchVisible && (
-              <SearchBar
-                onSearchActive={handleSearchActive}
-                onSearchInactive={handleSearchInactive}
-              />
-            )}
-          </AppBarSearchContainer>
-          {isProfileLinkVisible && (
-            <AppBarProfileLinkContainer>
-              <ProfileLink user={currentUser} onLogout={onLogout} />
-            </AppBarProfileLinkContainer>
-          )}
-        </AppBarMainContainer>
-        <AppBarLogoContainer isVisible={!isSearchActive}>
-          <AppBarLogo onLogoClick={handleLogoClick} />
-        </AppBarLogoContainer>
-      </AppBarHeader>
+          </AppBarMainContainer>
+          <AppBarLogoContainer isVisible={isLogoVisible && !isSearchActive}>
+            <AppBarLogo
+              isSmallAppBar
+              isLogoVisible={isLogoVisible}
+              isNavBarEnabled={isNavBarEnabled}
+              onLogoClick={onCloseNavbar}
+            />
+          </AppBarLogoContainer>
+        </AppBarHeader>
+      )}
       {isSubheaderVisible && (
         <AppBarSubheader isNavBarOpen={isNavBarVisible}>
           {isQuestionLineageVisible ? (
@@ -104,4 +120,5 @@ const AppBarSmall = ({
   );
 };
 
+// eslint-disable-next-line import/no-default-export -- deprecated usage
 export default AppBarSmall;

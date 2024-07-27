@@ -1,8 +1,6 @@
 import styled from "@emotion/styled";
-import { color } from "metabase/lib/colors";
+
 import { APP_BAR_HEIGHT } from "metabase/nav/constants";
-import { LogoLink } from "./AppBarLogo.styled";
-import { SidebarButton } from "./AppBarToggle.styled";
 
 interface AppBarRootProps {
   isNavBarOpen?: boolean;
@@ -13,37 +11,19 @@ export const AppBarRoot = styled.div<AppBarRootProps>`
   align-items: center;
   gap: 1rem;
   height: ${APP_BAR_HEIGHT};
-  padding: 0 1rem;
+  padding-left: 1.325rem;
+  padding-right: 1rem;
   border-bottom: 1px solid
-    ${props => (props.isNavBarOpen ? color("border") : "transparent")};
-  background-color: ${color("bg-white")};
+    ${props => (props.isNavBarOpen ? "var(--mb-color-border)" : "transparent")};
+  background-color: var(--mb-color-bg-white);
   transition: border-bottom-color 200ms ease;
 `;
 
-export interface AppBarLeftContainerProps {
-  isNavBarEnabled?: boolean;
-}
-
-export const AppBarLeftContainer = styled.div<AppBarLeftContainerProps>`
+export const AppBarLeftContainer = styled.div`
   display: flex;
   flex: 1 1 auto;
   align-items: center;
   min-width: 5rem;
-
-  ${SidebarButton} {
-    opacity: ${props => (props.isNavBarEnabled ? 0 : 1)};
-  }
-
-  &:hover {
-    ${LogoLink} {
-      opacity: ${props => (props.isNavBarEnabled ? 0 : 1)};
-      pointer-events: ${props => (props.isNavBarEnabled ? "none" : "")};
-    }
-
-    ${SidebarButton} {
-      opacity: ${props => (props.isNavBarEnabled ? 1 : 0)};
-    }
-  }
 `;
 
 export const AppBarRightContainer = styled.div`
@@ -69,5 +49,5 @@ export const AppBarInfoContainer = styled.div<AppBarInfoContainerProps>`
 `;
 
 export const AppBarProfileLinkContainer = styled.div`
-  color: ${color("text-light")};
+  color: var(--mb-color-text-light);
 `;

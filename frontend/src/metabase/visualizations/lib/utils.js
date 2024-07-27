@@ -1,9 +1,11 @@
-import _ from "underscore";
-import d3 from "d3";
-import { t } from "ttag";
 import crossfilter from "crossfilter";
+import * as d3 from "d3";
+import { t } from "ttag";
+import _ from "underscore";
 
-import { isDimension, isMetric, isDate } from "metabase-lib/types/utils/isa";
+import { isNotNull } from "metabase/lib/types";
+import { getColumnKey } from "metabase-lib/v1/queries/utils/get-column-key";
+import { isDimension, isMetric, isDate } from "metabase-lib/v1/types/utils/isa";
 
 export const MAX_SERIES = 100;
 
@@ -62,8 +64,13 @@ export function getAvailableCanvasWidth(element) {
 
 function generateSplits(list, left = [], right = [], depth = 0) {
   // NOTE: currently generates all permutations, some of which are equivalent
-  if (list.length === 0 || depth > SPLIT_AXIS_MAX_DEPTH) {
+  if (list.length === 0) {
     return [[left, right]];
+  } else if (depth > SPLIT_AXIS_MAX_DEPTH) {
+    // If we reach our max depth, we need to ensure that any item that haven't been added either list are accounted for
+    return left.length < right.length
+      ? [[left.concat(list), right]]
+      : [[left, right.concat(list)]];
   } else {
     return [
       ...generateSplits(
@@ -200,21 +207,22 @@ export function colorShade(hex, shade = 0) {
 }
 
 // cache computed cardinalities in a weak map since they are computationally expensive
-const cardinalityCache = new WeakMap();
+const cardinalityCache = new Map();
 
 export function getColumnCardinality(cols, rows, index) {
   const col = cols[index];
-  if (!cardinalityCache.has(col)) {
+  const key = getColumnKey(col);
+  if (!cardinalityCache.has(key)) {
     const dataset = crossfilter(rows);
     cardinalityCache.set(
-      col,
+      key,
       dataset
         .dimension(d => d[index])
         .group()
         .size(),
     );
   }
-  return cardinalityCache.get(col);
+  return cardinalityCache.get(key);
 }
 
 const extentCache = new WeakMap();
@@ -242,6 +250,7 @@ export function getCardAfterVisualizationClick(nextCard, previousCard) {
 
     return {
       ...nextCard,
+      type: "question",
       // Original card id is needed for showing the "started from" lineage in dirty cards.
       original_card_id: alreadyHadLineage
         ? // Just recycle the original card id of previous card if there was one
@@ -271,11 +280,12 @@ export function getDefaultDimensionAndMetric(series) {
   };
 }
 
-export function getDefaultDimensionsAndMetrics(
-  [{ data }],
+export function getSingleSeriesDimensionsAndMetrics(
+  series,
   maxDimensions = 2,
   maxMetrics = Infinity,
 ) {
+  const { data } = series;
   if (!data) {
     return {
       dimensions: [null],
@@ -334,6 +344,18 @@ export function getDefaultDimensionsAndMetrics(
   };
 }
 
+export function getDefaultDimensionsAndMetrics(
+  rawSeries,
+  maxDimensions = 2,
+  maxMetrics = Infinity,
+) {
+  return getSingleSeriesDimensionsAndMetrics(
+    rawSeries[0],
+    maxDimensions,
+    maxMetrics,
+  );
+}
+
 // Figure out how many decimal places are needed to represent the smallest
 // values in the chart with a certain number of significant digits.
 export function computeMaxDecimalsForValues(values, options) {
@@ -389,4 +411,32 @@ export const preserveExistingColumnsOrder = (prevColumns, newColumns) => {
   }
 
   return mergedColumnsResult;
+};
+
+export function getCardKey(cardId) {
+  return `${cardId ?? "unsaved"}`;
+}
+
+const PIVOT_SENSIBLE_MAX_CARDINALITY = 16;
+
+export const getDefaultPivotColumn = (cols, rows) => {
+  const columnsWithCardinality = cols
+    .map((column, index) => {
+      if (!isDimension(column)) {
+        return null;
+      }
+
+      const cardinality = getColumnCardinality(cols, rows, index);
+      if (cardinality > PIVOT_SENSIBLE_MAX_CARDINALITY) {
+        return null;
+      }
+
+      return { column, cardinality };
+    })
+    .filter(isNotNull);
+
+  return (
+    _.min(columnsWithCardinality, ({ cardinality }) => cardinality)?.column ??
+    null
+  );
 };

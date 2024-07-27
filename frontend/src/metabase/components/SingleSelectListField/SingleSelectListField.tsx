@@ -1,11 +1,15 @@
-import React, { useMemo, useState } from "react";
-import _ from "underscore";
+import type * as React from "react";
+import { useMemo, useState } from "react";
 import { t } from "ttag";
+import _ from "underscore";
+
+import EmptyState from "metabase/components/EmptyState";
+import type { InputProps } from "metabase/core/components/Input";
+import Input from "metabase/core/components/Input";
 import { useDebouncedValue } from "metabase/hooks/use-debounced-value";
 import { SEARCH_DEBOUNCE_DURATION } from "metabase/lib/constants";
-import EmptyState from "metabase/components/EmptyState";
+import type { RowValue } from "metabase-types/api";
 
-import Input, { InputProps } from "metabase/core/components/Input";
 import {
   OptionContainer,
   OptionsList,
@@ -13,15 +17,17 @@ import {
   OptionItem,
   FilterInputContainer,
 } from "./SingleSelectListField.styled";
-import { SingleSelectListFieldProps, Option } from "./types";
+import type { SingleSelectListFieldProps, Option } from "./types";
 import { isValidOptionItem } from "./utils";
 
 function createOptionsFromValuesWithoutOptions(
-  values: string[],
+  values: RowValue[],
   options: Option[],
 ): Option {
   const optionsMap = _.indexBy(options, "0");
-  return values.filter(value => !optionsMap[value]).map(value => [value]);
+  return values
+    .filter(value => typeof value !== "string" || !optionsMap[value])
+    .map(value => [value]);
 }
 
 const SingleSelectListField = ({
@@ -38,7 +44,7 @@ const SingleSelectListField = ({
     createOptionsFromValuesWithoutOptions(value, options),
   );
 
-  const augmentedOptions = useMemo(() => {
+  const augmentedOptions = useMemo<Option[]>(() => {
     return [...options.filter(option => option[0] != null), ...addedOptions];
   }, [addedOptions, options]);
 
@@ -135,7 +141,7 @@ const SingleSelectListField = ({
                 checkedColor ?? isDashboardFilter ? "brand" : "filter"
               }
               selected={selectedValue === option[0]}
-              onClick={e => onClickOption(option[0])}
+              onClick={() => onClickOption(option[0])}
               onMouseDown={e => e.preventDefault()}
             >
               {optionRenderer(option)}
@@ -147,4 +153,5 @@ const SingleSelectListField = ({
   );
 };
 
+// eslint-disable-next-line import/no-default-export -- deprecated usage
 export default SingleSelectListField;

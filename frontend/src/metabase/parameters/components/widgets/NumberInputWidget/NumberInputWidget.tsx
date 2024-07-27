@@ -1,16 +1,19 @@
-import React, { useState } from "react";
-import _ from "underscore";
+import { useState, useMemo } from "react";
 import { t } from "ttag";
+import _ from "underscore";
 
-import TokenField, { parseNumberValue } from "metabase/components/TokenField";
 import NumericInput from "metabase/core/components/NumericInput";
+import CS from "metabase/css/core/index.css";
+import { parseNumberValue } from "metabase/lib/number";
+import { UpdateFilterButton } from "metabase/parameters/components/UpdateFilterButton";
 import {
   WidgetRoot,
   WidgetLabel,
   Footer,
-  UpdateButton,
   TokenFieldWrapper,
 } from "metabase/parameters/components/widgets/Widget.styled";
+import { MultiAutocomplete } from "metabase/ui";
+import type { Parameter } from "metabase-types/api";
 
 export type NumberInputWidgetProps = {
   value: number[] | undefined;
@@ -21,11 +24,10 @@ export type NumberInputWidgetProps = {
   autoFocus?: boolean;
   placeholder?: string;
   label?: string;
+  parameter?: Partial<Pick<Parameter, "required" | "default">>;
 };
 
-const OPTIONS: any[] = [];
-
-function NumberInputWidget({
+export function NumberInputWidget({
   value,
   setValue,
   className,
@@ -34,15 +36,16 @@ function NumberInputWidget({
   autoFocus,
   placeholder = t`Enter a number`,
   label,
+  parameter = {},
 }: NumberInputWidgetProps) {
   const arrayValue = normalize(value);
   const [unsavedArrayValue, setUnsavedArrayValue] =
     useState<(number | undefined)[]>(arrayValue);
-  const hasValueChanged = !_.isEqual(arrayValue, unsavedArrayValue);
+
   const allValuesUnset = unsavedArrayValue.every(_.isUndefined);
   const allValuesSet = unsavedArrayValue.every(_.isNumber);
   const isValid =
-    (arity === "n" || unsavedArrayValue.length === arity) &&
+    (arity === "n" || unsavedArrayValue.length <= arity) &&
     (allValuesUnset || allValuesSet);
 
   const onClick = () => {
@@ -55,29 +58,40 @@ function NumberInputWidget({
     }
   };
 
+  function shouldCreate(value: string | number) {
+    const res = parseNumberValue(value);
+    return res !== null && res.toString() === value;
+  }
+
+  const filteredUnsavedArrayValue = useMemo(
+    () => unsavedArrayValue.filter((x): x is number => x !== undefined),
+    [unsavedArrayValue],
+  );
+
   return (
     <WidgetRoot className={className}>
       {label && <WidgetLabel>{label}</WidgetLabel>}
       {arity === "n" ? (
         <TokenFieldWrapper>
-          <TokenField
-            multi
-            updateOnInputChange
-            autoFocus={autoFocus}
-            value={unsavedArrayValue}
-            parseFreeformValue={parseNumberValue}
-            onChange={newValue => {
-              setUnsavedArrayValue(newValue);
-            }}
-            options={OPTIONS}
+          <MultiAutocomplete
+            onChange={(values: string[]) =>
+              setUnsavedArrayValue(
+                values.map(value => parseNumberValue(value) ?? undefined),
+              )
+            }
+            value={filteredUnsavedArrayValue.map(value => value?.toString())}
             placeholder={placeholder}
+            shouldCreate={shouldCreate}
+            autoFocus={autoFocus}
+            data={[]}
           />
         </TokenFieldWrapper>
       ) : (
         _.times(arity, i => (
-          <div className="inline-block" key={i}>
+          <div key={i}>
             <NumericInput
-              className="p1"
+              fullWidth
+              className={CS.p1}
               autoFocus={autoFocus && i === 0}
               value={unsavedArrayValue[i]}
               onChange={newValue => {
@@ -90,23 +104,26 @@ function NumberInputWidget({
               placeholder={placeholder}
             />
             {infixText && i !== arity - 1 && (
-              <span className="px1">{infixText}</span>
+              <span className={CS.px1}>{infixText}</span>
             )}
           </div>
         ))
       )}
       <Footer>
-        <UpdateButton disabled={!isValid || !hasValueChanged} onClick={onClick}>
-          {arrayValue.length ? t`Update filter` : t`Add filter`}
-        </UpdateButton>
+        <UpdateFilterButton
+          value={value}
+          unsavedValue={unsavedArrayValue}
+          defaultValue={parameter.default}
+          isValueRequired={parameter.required ?? false}
+          isValid={isValid}
+          onClick={onClick}
+        />
       </Footer>
     </WidgetRoot>
   );
 }
 
-export default NumberInputWidget;
-
-function normalize(value: number[] | undefined): number[] {
+function normalize(value: number[] | undefined): (number | undefined)[] {
   if (Array.isArray(value)) {
     return value;
   } else {

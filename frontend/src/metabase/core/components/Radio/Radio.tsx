@@ -1,14 +1,7 @@
-import React, {
-  forwardRef,
-  HTMLAttributes,
-  Key,
-  ReactNode,
-  Ref,
-  useCallback,
-  useMemo,
-} from "react";
+import type { HTMLAttributes, Key, ReactNode, Ref } from "react";
+import { forwardRef, useCallback, useMemo } from "react";
 import _ from "underscore";
-import { RadioColorScheme, RadioVariant } from "./types";
+
 import {
   RadioButton,
   RadioContainerBubble,
@@ -21,6 +14,7 @@ import {
   RadioGroupBubble,
   RadioGroupNormal,
 } from "./Radio.styled";
+import type { RadioColorScheme, RadioVariant } from "./types";
 
 const VARIANTS = {
   normal: {
@@ -62,7 +56,10 @@ export interface RadioOption<TValue> {
   value: TValue;
 }
 
-const Radio = forwardRef(function Radio<TValue, TOption = RadioOption<TValue>>(
+const BaseRadio = forwardRef(function Radio<
+  TValue,
+  TOption = RadioOption<TValue>,
+>(
   {
     name,
     value,
@@ -133,7 +130,7 @@ interface RadioItemProps<TValue> {
   onOptionClick?: (value: TValue) => void;
 }
 
-const RadioItem = <TValue, TOption>({
+const RadioItem = <TValue,>({
   checked,
   name,
   label,
@@ -191,7 +188,7 @@ const getDefaultOptionKey = <TValue, TOption>(option: TOption): Key => {
 };
 
 const getDefaultOptionName = <TValue, TOption>(option: TOption): ReactNode => {
-  if (isDefaultOption(option)) {
+  if (isDefaultOption<TValue>(option)) {
     return option.name;
   } else {
     throw new TypeError();
@@ -212,12 +209,19 @@ function isDefaultOption<TValue>(
   return typeof option === "object";
 }
 
-export default Object.assign(Radio, {
+/**
+ * @deprecated: use Radio from "metabase/ui"
+ */
+const Radio = Object.assign(BaseRadio, {
   RadioGroupVariants: [RadioGroupBubble, RadioGroupNormal],
   RadioLabelVariants: [RadioLabelBubble, RadioLabelNormal],
+  RadioLabelText: RadioLabelText,
   RadioContainerVariants: [
     RadioContainerBubble,
     RadioContainerNormal,
     RadioContainerUnderlined,
   ],
 });
+
+// eslint-disable-next-line import/no-default-export -- deprecated usage
+export default Radio;

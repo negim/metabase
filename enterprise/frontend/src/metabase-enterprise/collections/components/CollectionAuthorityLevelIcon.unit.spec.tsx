@@ -1,4 +1,3 @@
-import React from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -22,7 +21,7 @@ describe("CollectionAuthorityLevelIcon", () => {
     ].forEach(({ collection, name }) => {
       it(`doesn't render for ${name}`, () => {
         render(<CollectionAuthorityLevelIcon collection={collection} />);
-        expect(screen.queryByLabelText("folder icon")).toBeNull();
+        expect(screen.queryByLabelText("folder icon")).not.toBeInTheDocument();
       });
     });
   });
@@ -50,32 +49,32 @@ describe("CollectionAuthorityLevelIcon", () => {
       expect(queryOfficialIcon()).toBeInTheDocument();
     });
 
-    it(`displays a tooltip by default`, () => {
+    it(`displays a tooltip by default`, async () => {
       renderOfficialCollection();
-      userEvent.hover(queryOfficialIcon());
+      await userEvent.hover(queryOfficialIcon());
       expect(screen.getByRole("tooltip")).toHaveTextContent(
         "Official collection",
       );
     });
 
-    it(`can display different tooltip`, () => {
+    it(`can display different tooltip`, async () => {
       renderOfficialCollection({ tooltip: "belonging" });
-      userEvent.hover(queryOfficialIcon());
+      await userEvent.hover(queryOfficialIcon());
       expect(screen.getByRole("tooltip")).toHaveTextContent(
         "Belongs to an Official collection",
       );
     });
 
-    it(`can display custom tooltip text`, () => {
+    it(`can display custom tooltip text`, async () => {
       renderOfficialCollection({ tooltip: "Hello" });
-      userEvent.hover(queryOfficialIcon());
+      await userEvent.hover(queryOfficialIcon());
       expect(screen.getByRole("tooltip")).toHaveTextContent("Hello");
     });
 
-    it(`can hide tooltip`, () => {
+    it(`can hide tooltip`, async () => {
       renderOfficialCollection({ tooltip: null });
-      userEvent.hover(queryOfficialIcon());
-      expect(screen.queryByLabelText("tooltip")).toBeNull();
+      await userEvent.hover(queryOfficialIcon());
+      expect(screen.queryByLabelText("tooltip")).not.toBeInTheDocument();
     });
   });
 });

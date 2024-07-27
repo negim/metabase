@@ -1,11 +1,9 @@
-import * as Urls from "metabase/lib/urls";
-
 import { coerceCollectionId } from "metabase/collections/utils";
+import * as Urls from "metabase/lib/urls";
+import type Question from "metabase-lib/v1/Question";
+import type { Collection, Dashboard } from "metabase-types/api";
 
-import type { Dashboard } from "metabase-types/api";
-import type Question from "metabase-lib/Question";
-
-import { SelectedItem } from "./types";
+import type { SelectedItem } from "./types";
 
 type Opts = {
   pathname: string;
@@ -15,32 +13,80 @@ type Opts = {
   };
   question?: Question;
   dashboard?: Dashboard;
+  collection?: Collection;
 };
+
+export function isCollectionPath(pathname: string): boolean {
+  return pathname.startsWith("/collection");
+}
+
+function isTrashPath(pathname: string): boolean {
+  return pathname.startsWith("/trash");
+}
+
+function isInTrash({
+  pathname,
+  collection,
+  question,
+  dashboard,
+}: Pick<Opts, "pathname" | "collection" | "question" | "dashboard">): boolean {
+  return (
+    isTrashPath(pathname) ||
+    collection?.archived ||
+    question?.isArchived() ||
+    dashboard?.archived ||
+    false
+  );
+}
+
+function isUsersCollectionPath(pathname: string): boolean {
+  return pathname.startsWith("/collection/users");
+}
+
+export function isQuestionPath(pathname: string): boolean {
+  return pathname.startsWith("/question");
+}
+
+export function isModelPath(pathname: string): boolean {
+  return pathname.startsWith("/model");
+}
+
+export function isMetricPath(pathname: string): boolean {
+  return pathname.startsWith("/metric");
+}
+
+function isDashboardPath(pathname: string): boolean {
+  return pathname.startsWith("/dashboard");
+}
 
 function getSelectedItems({
   pathname,
   params,
   question,
   dashboard,
+  collection,
 }: Opts): SelectedItem[] {
   const { slug } = params;
 
-  const isCollectionPath = pathname.startsWith("/collection");
-  const isUsersCollectionPath = pathname.startsWith("/collection/users");
-  const isQuestionPath = pathname.startsWith("/question");
-  const isModelPath = pathname.startsWith("/model");
-  const isModelDetailPath = isModelPath && pathname.endsWith("/detail");
-  const isDashboardPath = pathname.startsWith("/dashboard");
-
-  if (isCollectionPath) {
+  if (isInTrash({ pathname, collection, question, dashboard })) {
     return [
       {
-        id: isUsersCollectionPath ? "users" : Urls.extractCollectionId(slug),
+        id: "trash",
         type: "collection",
       },
     ];
   }
-  if (isDashboardPath && dashboard) {
+  if (isCollectionPath(pathname)) {
+    return [
+      {
+        id: isUsersCollectionPath(pathname)
+          ? "users"
+          : Urls.extractCollectionId(slug),
+        type: "collection",
+      },
+    ];
+  }
+  if (isDashboardPath(pathname) && dashboard) {
     return [
       {
         id: dashboard.id,
@@ -52,7 +98,7 @@ function getSelectedItems({
       },
     ];
   }
-  if ((isQuestionPath || isModelPath) && question) {
+  if ((isQuestionPath(pathname) || isModelPath(pathname)) && question) {
     return [
       {
         id: question.id(),
@@ -64,15 +110,8 @@ function getSelectedItems({
       },
     ];
   }
-  if (isModelDetailPath) {
-    return [
-      {
-        id: Urls.extractEntityId(slug),
-        type: "card",
-      },
-    ];
-  }
   return [{ url: pathname, type: "non-entity" }];
 }
 
+// eslint-disable-next-line import/no-default-export -- deprecated usage
 export default getSelectedItems;

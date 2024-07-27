@@ -1,37 +1,50 @@
-import {
-  DatasetColumn,
-  RowValue,
-  VisualizationSettings,
-} from "metabase-types/api";
-import { isNotNull } from "metabase/core/utils/types";
+import { getIn } from "icepick";
+import _ from "underscore";
+
 import { formatNullable } from "metabase/lib/formatting/nullable";
-import {
-  ChartColumns,
+import { isNotNull } from "metabase/lib/types";
+import { sumMetric } from "metabase/visualizations/lib/dataset";
+import type {
+  CartesianChartColumns,
   ColumnDescriptor,
-  getColumnDescriptors,
 } from "metabase/visualizations/lib/graph/columns";
-import {
+import { getColumnDescriptors } from "metabase/visualizations/lib/graph/columns";
+import { getStackOffset } from "metabase/visualizations/lib/settings/stacking";
+import { formatValueForTooltip } from "metabase/visualizations/lib/tooltip";
+import type {
   BarData,
   Series,
 } from "metabase/visualizations/shared/components/RowChart/types";
-import {
+import type {
   GroupedDatum,
   MetricDatum,
   SeriesInfo,
 } from "metabase/visualizations/shared/types/data";
-import { sumMetric } from "metabase/visualizations/shared/utils/data";
-import { isMetric } from "metabase-lib/types/utils/isa";
+import type {
+  DataPoint,
+  StackedTooltipModel,
+  TooltipRowModel,
+} from "metabase/visualizations/types";
+import type {
+  ClickObject,
+  ClickObjectDimension,
+} from "metabase-lib/v1/queries/drills/types";
+import { isMetric } from "metabase-lib/v1/types/utils/isa";
+import type { DatasetColumn, VisualizationSettings } from "metabase-types/api";
 
 const getMetricColumnData = (
   columns: DatasetColumn[],
   metricDatum: MetricDatum,
+  visualizationSettings: VisualizationSettings,
 ) => {
   return Object.entries(metricDatum).map(([columnName, value]) => {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const col = columns.find(column => column.name === columnName)!;
+    const key =
+      getIn(visualizationSettings, ["series_settings", col.name, "title"]) ??
+      col.display_name;
 
     return {
-      key: col.display_name,
+      key,
       value: formatNullable(value),
       col,
     };
@@ -43,7 +56,7 @@ const getColumnData = (columns: ColumnDescriptor[], datum: GroupedDatum) => {
     .map(columnDescriptor => {
       const { column, index } = columnDescriptor;
 
-      let value = null;
+      let value;
 
       if (isMetric(column)) {
         const metricSum = datum.rawRows.reduce<number | null>(
@@ -69,10 +82,11 @@ const getColumnData = (columns: ColumnDescriptor[], datum: GroupedDatum) => {
 };
 
 const getColumnsData = (
-  chartColumns: ChartColumns,
+  chartColumns: CartesianChartColumns,
   series: Series<GroupedDatum, unknown>,
   datum: GroupedDatum,
   datasetColumns: DatasetColumn[],
+  visualizationSettings: VisualizationSettings,
 ) => {
   const data = [
     {
@@ -96,7 +110,9 @@ const getColumnsData = (
     metricDatum = datum.metrics;
   }
 
-  data.push(...getMetricColumnData(datasetColumns, metricDatum));
+  data.push(
+    ...getMetricColumnData(datasetColumns, metricDatum, visualizationSettings),
+  );
 
   const otherColumnsDescriptiors = getColumnDescriptors(
     datasetColumns
@@ -112,16 +128,22 @@ const getColumnsData = (
 export const getClickData = (
   bar: BarData<GroupedDatum, SeriesInfo>,
   visualizationSettings: VisualizationSettings,
-  chartColumns: ChartColumns,
+  chartColumns: CartesianChartColumns,
   datasetColumns: DatasetColumn[],
-) => {
+): ClickObject => {
   const { series, datum } = bar;
-  const data = getColumnsData(chartColumns, series, datum, datasetColumns);
+  const data = getColumnsData(
+    chartColumns,
+    series,
+    datum,
+    datasetColumns,
+    visualizationSettings,
+  );
 
   const xValue = series.xAccessor(datum);
   const yValue = series.yAccessor(datum);
 
-  const dimensions: { column: DatasetColumn; value?: RowValue }[] = [
+  const dimensions: ClickObjectDimension[] = [
     {
       column: chartColumns.dimension.column,
       value: yValue,
@@ -131,7 +153,7 @@ export const getClickData = (
   if ("breakout" in chartColumns) {
     dimensions.push({
       column: chartColumns.breakout.column,
-      value: series.seriesInfo?.breakoutValue,
+      value: series.seriesInfo?.breakoutValue ?? null,
     });
   }
 
@@ -148,16 +170,18 @@ export const getLegendClickData = (
   seriesIndex: number,
   series: Series<GroupedDatum, SeriesInfo>[],
   visualizationSettings: VisualizationSettings,
-  chartColumns: ChartColumns,
+  chartColumns: CartesianChartColumns,
 ) => {
   const currentSeries = series[seriesIndex];
 
   const dimensions =
     "breakout" in chartColumns
-      ? {
-          column: chartColumns.breakout.column,
-          value: currentSeries.seriesInfo?.breakoutValue,
-        }
+      ? [
+          {
+            column: chartColumns.breakout.column,
+            value: currentSeries.seriesInfo?.breakoutValue ?? null,
+          },
+        ]
       : undefined;
 
   return {
@@ -167,23 +191,127 @@ export const getLegendClickData = (
   };
 };
 
+const getBreakoutsTooltipRows = <TDatum>(
+  bar: BarData<TDatum>,
+  settings: VisualizationSettings,
+  multipleSeries: Series<TDatum, SeriesInfo>[],
+  seriesColors: Record<string, string>,
+): TooltipRowModel[] =>
+  multipleSeries.map(series => {
+    const value = series.xAccessor(bar.datum);
+    return {
+      name: series.seriesName,
+      color: seriesColors[series.seriesKey],
+      value,
+      formatter: value =>
+        String(
+          formatValueForTooltip({
+            value,
+            settings,
+            column: series.seriesInfo?.metricColumn,
+          }),
+        ),
+    };
+  });
+
+export const getTooltipModel = <TDatum>(
+  bar: BarData<TDatum>,
+  settings: VisualizationSettings,
+  chartColumns: CartesianChartColumns,
+  multipleSeries: Series<TDatum, SeriesInfo>[],
+  seriesColors: Record<string, string>,
+) => {
+  const { series, datum } = bar;
+  const dimensionValue = series.yAccessor(datum);
+
+  const headerTitle = String(
+    formatValueForTooltip({
+      value: dimensionValue,
+      column: chartColumns.dimension.column,
+      settings,
+    }),
+  );
+
+  const hasBreakout = "breakout" in chartColumns;
+  const rows = getBreakoutsTooltipRows(
+    bar,
+    settings,
+    multipleSeries,
+    seriesColors,
+  );
+
+  const [headerRows, bodyRows] = _.partition(
+    rows,
+    row => row.name === series.seriesName,
+  );
+
+  const totalFormatter = (value: unknown) =>
+    String(
+      formatValueForTooltip({
+        value,
+        settings,
+        column: hasBreakout
+          ? chartColumns.metric.column
+          : chartColumns.metrics[0].column,
+      }),
+    );
+
+  return {
+    headerTitle,
+    headerRows,
+    bodyRows,
+    totalFormatter,
+    showTotal: true,
+    showPercentages: true,
+  };
+};
+
 export const getHoverData = (
   bar: BarData<GroupedDatum>,
   settings: VisualizationSettings,
-  chartColumns: ChartColumns,
+  chartColumns: CartesianChartColumns,
   datasetColumns: DatasetColumn[],
-) => {
-  const data = getColumnsData(
-    chartColumns,
-    bar.series,
-    bar.datum,
-    datasetColumns,
-  );
-
-  return {
+  multipleSeries: Series<GroupedDatum, SeriesInfo>[],
+  seriesColors: Record<string, string>,
+): {
+  settings: VisualizationSettings;
+  datumIndex: number;
+  index: number;
+  data?: DataPoint[];
+  stackedTooltipModel?: StackedTooltipModel;
+} => {
+  const hoverData = {
     settings,
     datumIndex: bar.datumIndex,
     index: bar.seriesIndex,
-    data,
+  };
+
+  const hasMultipleSeries =
+    "breakout" in chartColumns || chartColumns.metrics.length > 1;
+  const isStacked = getStackOffset(settings) != null;
+  if (!isStacked || !hasMultipleSeries) {
+    const data = getColumnsData(
+      chartColumns,
+      bar.series,
+      bar.datum,
+      datasetColumns,
+      settings,
+    );
+
+    return {
+      ...hoverData,
+      data,
+    };
+  }
+
+  return {
+    ...hoverData,
+    stackedTooltipModel: getTooltipModel(
+      bar,
+      settings,
+      chartColumns,
+      multipleSeries,
+      seriesColors,
+    ),
   };
 };

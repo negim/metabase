@@ -1,15 +1,16 @@
-import React from "react";
 import PropTypes from "prop-types";
+import { Fragment } from "react";
 import { connect } from "react-redux";
 
-import { getLatestModerationReview } from "metabase-enterprise/moderation/service";
-import { getIsModerator } from "metabase-enterprise/moderation/selectors";
 import {
   verifyCard,
   removeCardReview,
 } from "metabase-enterprise/moderation/actions";
+import { getIsModerator } from "metabase-enterprise/moderation/selectors";
+import { getLatestModerationReview } from "metabase-enterprise/moderation/service";
 
 import ModerationReviewBanner from "../ModerationReviewBanner/ModerationReviewBanner";
+
 import { VerifyButton as DefaultVerifyButton } from "./QuestionModerationSection.styled";
 
 const mapStateToProps = (state, props) => ({
@@ -52,14 +53,14 @@ function QuestionModerationSection({
   };
 
   return (
-    <React.Fragment>
+    <Fragment>
       {latestModerationReview && (
         <ModerationReviewBanner
           className={reviewBannerClassName}
           moderationReview={latestModerationReview}
-          onRemove={isModerator && onRemoveModerationReview}
+          onRemove={isModerator ? onRemoveModerationReview : undefined}
         />
       )}
-    </React.Fragment>
+    </Fragment>
   );
 }

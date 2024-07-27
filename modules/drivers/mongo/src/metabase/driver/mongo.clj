@@ -1,36 +1,34 @@
 (ns metabase.driver.mongo
   "MongoDB Driver."
-  (:require [cheshire.core :as json]
-            [cheshire.generate :as json.generate]
-            [clojure.string :as str]
-            [clojure.tools.logging :as log]
-            [java-time :as t]
-            [metabase.db.metadata-queries :as metadata-queries]
-            [metabase.driver :as driver]
-            [metabase.driver.common :as driver.common]
-            [metabase.driver.mongo.execute :as mongo.execute]
-            [metabase.driver.mongo.parameters :as mongo.params]
-            [metabase.driver.mongo.query-processor :as mongo.qp]
-            [metabase.driver.mongo.util :refer [with-mongo-connection]]
-            [metabase.models :refer [Field]]
-            [metabase.query-processor.store :as qp.store]
-            [metabase.query-processor.timezone :as qp.timezone]
-            [metabase.util :as u]
-            [monger.command :as cmd]
-            [monger.conversion :as m.conversion]
-            [monger.core :as mg]
-            [monger.db :as mdb]
-            monger.json
-            [monger.query :as mq]
-            [taoensso.nippy :as nippy]
-            [toucan.db :as db])
-  (:import com.mongodb.DB
-           [java.time Instant LocalDate LocalDateTime LocalTime OffsetDateTime OffsetTime ZonedDateTime]
-           org.bson.types.ObjectId))
+  (:require
+   [cheshire.core :as json]
+   [cheshire.generate :as json.generate]
+   [clojure.string :as str]
+   [flatland.ordered.map :as ordered-map]
+   [metabase.db.metadata-queries :as metadata-queries]
+   [metabase.driver :as driver]
+   [metabase.driver.common :as driver.common]
+   [metabase.driver.mongo.connection :as mongo.connection]
+   [metabase.driver.mongo.database :as mongo.db]
+   [metabase.driver.mongo.execute :as mongo.execute]
+   [metabase.driver.mongo.json]
+   [metabase.driver.mongo.parameters :as mongo.params]
+   [metabase.driver.mongo.query-processor :as mongo.qp]
+   [metabase.driver.mongo.util :as mongo.util]
+   [metabase.driver.util :as driver.u]
+   [metabase.lib.metadata :as lib.metadata]
+   [metabase.lib.metadata.protocols :as lib.metadata.protocols]
+   [metabase.query-processor.store :as qp.store]
+   [metabase.util :as u]
+   [metabase.util.log :as log]
+   [taoensso.nippy :as nippy])
+  (:import
+   (com.mongodb.client MongoClient MongoDatabase)
+   (org.bson.types ObjectId)))
 
-;; See http://clojuremongodb.info/articles/integration.html Loading this namespace will load appropriate Monger
-;; integrations with Cheshire.
-(comment monger.json/keep-me)
+(set! *warn-on-reflection* true)
+
+(comment metabase.driver.mongo.json/keep-me)
 
 ;; JSON Encoding (etc.)
 
@@ -48,12 +46,19 @@
 (driver/register! :mongo)
 
 (defmethod driver/can-connect? :mongo
-  [_ details]
-  (with-mongo-connection [^DB conn, details]
-    (= (float (-> (cmd/db-stats conn)
-                  (m.conversion/from-db-object :keywordize)
-                  :ok))
-       1.0)))
+  [_ db-details]
+  (mongo.connection/with-mongo-client [^MongoClient c db-details]
+    (let [db-names (mongo.util/list-database-names c)
+          db-name (mongo.db/db-name db-details)
+          db (mongo.util/database c db-name)
+          db-stats (mongo.util/run-command db {:dbStats 1} :keywordize true)]
+      (and
+       ;; 1. check db.dbStats command completes successfully
+       (= (float (:ok db-stats))
+          1.0)
+       ;; 2. check the database is actually on the server
+       ;; (this is required because (1) is true even if the database doesn't exist)
+       (boolean (some #(= % db-name) db-names))))))
 
 (defmethod driver/humanize-connection-error-message
   :mongo
@@ -95,7 +100,7 @@
 
 (defmethod driver/sync-in-context :mongo
   [_ database do-sync-fn]
-  (with-mongo-connection [_ database]
+  (mongo.connection/with-mongo-client [_ database]
     (do-sync-fn)))
 
 (defn- val->semantic-type [field-value]
@@ -107,8 +112,8 @@
 
     ;; 2. json?
     (and (string? field-value)
-         (or (str/starts-with? "{" field-value)
-             (str/starts-with? "[" field-value)))
+         (or (str/starts-with? field-value "{")
+             (str/starts-with? field-value "[")))
     (when-let [j (u/ignore-exceptions (json/parse-string field-value))]
       (when (or (map? j)
                 (sequential? j))
@@ -138,17 +143,14 @@
                                  (find-nested-fields field-value nested-fields)
                                  nested-fields)))))
 
-;; TODO - use [[metabase.driver.common/class->base-type]] to implement this functionality
 (defn- most-common-object-type
   "Given a sequence of tuples like [Class <number-of-occurances>] return the Class with the highest number of
   occurances. The basic idea here is to take a sample of values for a Field and then determine the most common type
   for its values, and use that as the Metabase base type. For example if we have a Field called `zip_code` and it's a
   number 90% of the time and a string the other 10%, we'll just call it a `:type/Number`."
   ^Class [field-types]
-  (->> field-types
-       (sort-by second)
-       last
-       first))
+  (when (seq field-types)
+    (first (apply max-key second field-types))))
 
 (defn- class->base-type [^Class klass]
   (if (isa? klass org.bson.types.ObjectId)
@@ -156,7 +158,7 @@
     (driver.common/class->base-type klass)))
 
 (defn- describe-table-field [field-kw field-info idx]
-  (let [most-common-object-type  (most-common-object-type (vec (:types field-info)))
+  (let [most-common-object-type  (most-common-object-type (:types field-info))
         [nested-fields idx-next]
         (reduce
          (fn [[nested-fields idx] nested-field]
@@ -179,17 +181,51 @@
        (:nested-fields field-info) (assoc :nested-fields nested-fields)) idx-next]))
 
 (defmethod driver/dbms-version :mongo
-  [_ database]
-  (with-mongo-connection [^com.mongodb.DB conn database]
-    (let [build-info (mg/command conn {:buildInfo 1})]
+  [_driver database]
+  (mongo.connection/with-mongo-database [db database]
+    (let [build-info (mongo.util/run-command db {:buildInfo 1})
+          version-array (get build-info "versionArray")
+          sanitized-version-array (into [] (take-while nat-int?) version-array)]
+      (when (not= (take 3 version-array) (take 3 sanitized-version-array))
+        (log/warnf "sanitizing versionArray %s results in %s, losing information"
+                   version-array sanitized-version-array))
       {:version (get build-info "version")
-       :semantic-version (get build-info "versionArray")})))
+       :semantic-version sanitized-version-array})))
 
 (defmethod driver/describe-database :mongo
   [_ database]
-  (with-mongo-connection [^com.mongodb.DB conn database]
-    {:tables (set (for [collection (disj (mdb/get-collection-names conn) "system.indexes")]
+  (mongo.connection/with-mongo-database [^MongoDatabase db database]
+    {:tables (set (for [collection (mongo.util/list-collection-names db)
+                        :when (not= collection "system.indexes")]
                     {:schema nil, :name collection}))}))
+
+(defmethod driver/describe-table-indexes :mongo
+  [_ database table]
+  (mongo.connection/with-mongo-database [^MongoDatabase db database]
+    (let [collection (mongo.util/collection db (:name table))]
+      (->> (mongo.util/list-indexes collection)
+           (map (fn [index]
+                ;; for text indexes, column names are specified in the weights
+                  (if (contains? index "textIndexVersion")
+                    (get index "weights")
+                    (get index "key"))))
+           (map (comp name first keys))
+           ;; mongo support multi key index, aka nested fields index, so we need to split the keys
+           ;; and represent it as a list of field names
+           (map #(if (str/includes? % ".")
+                   {:type  :nested-column-index
+                    :value (str/split % #"\.")}
+                   {:type  :normal-column-index
+                    :value %}))
+           set))))
+
+(defn- sample-documents [^MongoDatabase db table sort-direction]
+  (let [coll (mongo.util/collection db (:name table))]
+    (mongo.util/do-find coll {:keywordize true
+                              :limit metadata-queries/nested-field-sample-limit
+                              :skip 0
+                              :sort-criteria [[:_id sort-direction]]
+                              :batch-size 256})))
 
 (defn- table-sample-column-info
   "Sample the rows (i.e., documents) in `table` and return a map of information about the column keys we found in that
@@ -197,7 +233,7 @@
 
       {:_id      {:count 200, :len nil, :types {java.lang.Long 200}, :semantic-types nil, :nested-fields nil},
        :severity {:count 200, :len nil, :types {java.lang.Long 200}, :semantic-types nil, :nested-fields nil}}"
-  [^com.mongodb.DB conn, table]
+  [^MongoDatabase db table]
   (try
     (reduce
      (fn [field-defs row]
@@ -205,19 +241,15 @@
          (if-not k
            fields
            (recur more-keys (update fields k (partial update-field-attrs (k row)))))))
-     {}
-     (-> (.getCollection conn (:name table))
-         mq/empty-query
-         (assoc :sort {:_id -1}
-                :limit metadata-queries/nested-field-sample-limit)
-         mq/exec))
+     (ordered-map/ordered-map)
+     (concat (sample-documents db table 1) (sample-documents db table -1)))
     (catch Throwable t
       (log/error (format "Error introspecting collection: %s" (:name table)) t))))
 
 (defmethod driver/describe-table :mongo
   [_ database table]
-  (with-mongo-connection [^com.mongodb.DB conn database]
-    (let [column-info (table-sample-column-info conn table)]
+  (mongo.connection/with-mongo-database [^MongoDatabase db database]
+    (let [column-info (table-sample-column-info db table)]
       {:schema nil
        :name   (:name table)
        :fields (first
@@ -227,109 +259,94 @@
                         [#{} 0]
                         column-info))})))
 
-(doseq [feature [:basic-aggregations
-                 :nested-fields
-                 :native-parameters
-                 :standard-deviation-aggregations]]
-  (defmethod driver/supports? [:mongo feature] [_driver _feature] true))
+(doseq [[feature supported?] {:basic-aggregations              true
+                              :expression-aggregations         true
+                              :inner-join                      true
+                              :left-join                       true
+                              :nested-fields                   true
+                              :native-parameter-card-reference false
+                              :native-parameters               true
+                              :nested-queries                  true
+                              :set-timezone                    true
+                              :standard-deviation-aggregations true
+                              :test/jvm-timezone-setting       false
+                              :index-info                      true}]
+  (defmethod driver/database-supports? [:mongo feature] [_driver _feature _db] supported?))
 
-(defn- db-version [db]
-  (get-in db [:details :version]))
+(defmethod driver/database-supports? [:mongo :schemas] [_driver _feat _db] false)
 
-(defn- parse-version [version]
-  (->> (str/split version #"\.")
-       (take 2)
-       (map #(Integer/parseInt %))))
+(defmethod driver/database-supports? [:mongo :expressions]
+  [_driver _feature db]
+  (-> ((some-fn :dbms-version :dbms_version) db)
+      :semantic-version
+      (driver.u/semantic-version-gte [4 2])))
 
-(defn- db-major-version [db]
-  (some-> (db-version db) parse-version first))
+(defmethod driver/database-supports? [:mongo :date-arithmetics]
+  [_driver _feature db]
+  (-> ((some-fn :dbms-version :dbms_version) db)
+      :semantic-version
+      (driver.u/semantic-version-gte [5])))
 
-(defmethod driver/database-supports? [:mongo :expressions] [_ _ db]
-  (let [version (db-major-version db)]
-    (and (some? version) (>= version 4))))
-
-(defmethod driver/database-supports? [:mongo :date-arithmetics] [_ _ db]
-  (let [version (db-major-version db)]
-    (and (some? version) (>= version 5))))
+(defmethod driver/database-supports? [:mongo :datetime-diff]
+  [_driver _feature db]
+  (-> ((some-fn :dbms-version :dbms_version) db)
+      :semantic-version
+      (driver.u/semantic-version-gte [5])))
 
 (defmethod driver/database-supports? [:mongo :now]
   ;; The $$NOW aggregation expression was introduced in version 4.2.
-  [_ _ db]
-  (let [version (some-> (db-version db) parse-version)]
-    (and (some? version) (>= (first version) 4) (>= (second version) 2))))
+  [_driver _feature db]
+  (-> ((some-fn :dbms-version :dbms_version) db)
+      :semantic-version
+      (driver.u/semantic-version-gte [4 2])))
+
+(defmethod driver/database-supports? [:mongo :native-requires-specified-collection]
+  [_driver _feature _db]
+  true)
+
+;; We say Mongo supports foreign keys so that the front end can use implicit
+;; joins. In reality, Mongo doesn't support foreign keys.
+;; Only define an implementation for `:foreign-keys` if none exists already.
+;; In test extensions we define an alternate implementation, and we don't want
+;; to stomp over that if it was loaded already.
+(when-not (get (methods driver/database-supports?) [:mongo :foreign-keys])
+  (defmethod driver/database-supports? [:mongo :foreign-keys] [_driver _feature _db] true))
 
 (defmethod driver/mbql->native :mongo
   [_ query]
   (mongo.qp/mbql->native query))
 
 (defmethod driver/execute-reducible-query :mongo
-  [_ query context respond]
-  (with-mongo-connection [_ (qp.store/database)]
-    (mongo.execute/execute-reducible-query query context respond)))
+  [_driver query _context respond]
+  (assert (string? (get-in query [:native :collection])) "Cannot execute MongoDB query without a :collection name")
+  (mongo.connection/with-mongo-client [_ (lib.metadata/database (qp.store/metadata-provider))]
+    (mongo.execute/execute-reducible-query query respond)))
 
 (defmethod driver/substitute-native-parameters :mongo
   [driver inner-query]
   (mongo.params/substitute-native-parameters driver inner-query))
-
-;; It seems to be the case that the only thing BSON supports is DateTime which is basically the equivalent of Instant;
-;; for the rest of the types, we'll have to fake it
-(extend-protocol m.conversion/ConvertToDBObject
-  Instant
-  (to-db-object [t]
-    (org.bson.BsonDateTime. (t/to-millis-from-epoch t)))
-
-  LocalDate
-  (to-db-object [t]
-    (m.conversion/to-db-object (t/local-date-time t (t/local-time 0))))
-
-  LocalDateTime
-  (to-db-object [t]
-    ;; QP store won't be bound when loading test data for example.
-    (m.conversion/to-db-object (t/instant t (t/zone-id (try
-                                                         (qp.timezone/results-timezone-id)
-                                                         (catch Throwable _
-                                                           "UTC"))))))
-
-  LocalTime
-  (to-db-object [t]
-    (m.conversion/to-db-object (t/local-date-time (t/local-date "1970-01-01") t)))
-
-  OffsetDateTime
-  (to-db-object [t]
-    (m.conversion/to-db-object (t/instant t)))
-
-  OffsetTime
-  (to-db-object [t]
-    (m.conversion/to-db-object (t/offset-date-time (t/local-date "1970-01-01") t (t/zone-offset t))))
-
-  ZonedDateTime
-  (to-db-object [t]
-    (m.conversion/to-db-object (t/instant t))))
-
-(extend-protocol m.conversion/ConvertFromDBObject
-  java.util.Date
-  (from-db-object [t _]
-    (t/instant t)))
 
 (defmethod driver/db-start-of-week :mongo
   [_]
   :sunday)
 
 (defn- get-id-field-id [table]
-  (db/select-one-id Field :name "_id" :table_id (u/the-id table)))
+  (some (fn [field]
+          (when (= (:name field) "_id")
+            (:id field)))
+        (lib.metadata.protocols/fields (qp.store/metadata-provider) (u/the-id table))))
 
 (defmethod driver/table-rows-sample :mongo
   [_driver table fields rff opts]
-  (let [mongo-opts {;; setting :truncation-start is needed because of a bug
-                    ;; in our mongo drivers handling of :substring (#27270)
-                    :truncation-start 0
-                    :limit metadata-queries/nested-field-sample-limit
-                    :order-by [[:desc [:field (get-id-field-id table) nil]]]}]
-    (metadata-queries/table-rows-sample table fields rff (merge mongo-opts opts))))
+  (qp.store/with-metadata-provider (:db_id table)
+    (let [mongo-opts {:limit    metadata-queries/nested-field-sample-limit
+                      :order-by [[:desc [:field (get-id-field-id table) nil]]]}]
+      (metadata-queries/table-rows-sample table fields rff (merge mongo-opts opts)))))
 
-(comment
+;; Following code is using monger. Leaving it here for a reference as it could be transformed when there is need
+;; for ssl experiments.
+#_(comment
   (require '[clojure.java.io :as io]
-           '[metabase.driver.util :as driver.u]
            '[monger.credentials :as mcred])
   (import javax.net.ssl.SSLSocketFactory)
 

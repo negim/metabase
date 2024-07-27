@@ -1,7 +1,9 @@
-import { render } from "@testing-library/react";
+import moment from "moment-timezone"; // eslint-disable-line no-restricted-imports -- deprecated usage
 import { isElementOfType } from "react-dom/test-utils";
-import moment from "moment-timezone";
 
+import { mockSettings } from "__support__/settings";
+import ExternalLink from "metabase/core/components/ExternalLink";
+import Link from "metabase/core/components/Link";
 import {
   capitalize,
   formatNumber,
@@ -13,10 +15,16 @@ import {
   slugify,
   getCurrencySymbol,
 } from "metabase/lib/formatting";
-import ExternalLink from "metabase/core/components/ExternalLink";
-import { TYPE } from "metabase-lib/types/constants";
+import { TYPE } from "metabase-lib/v1/types/constants";
+import { createMockColumn } from "metabase-types/api/mocks";
+
+const SITE_URL = "http://localhost:3000";
 
 describe("formatting", () => {
+  beforeAll(() => {
+    mockSettings({ site_url: SITE_URL });
+  });
+
   describe("capitalize", () => {
     it("capitalizes a single word", () => {
       expect(capitalize("hello")).toBe("Hello");
@@ -81,72 +89,27 @@ describe("formatting", () => {
         expect(formatNumber(0, { negativeInParentheses: true })).toEqual("0");
       });
     });
-    describe("with currency_in_header drops the currency symbol", () => {
-      const options = {
-        number_style: "currency",
-        currency: "USD",
-        currency_in_header: true,
-        type: "cell",
-      };
-
-      it("from positive USD", () => {
-        expect(formatNumber(1234.56, options)).toBe("1,234.56");
-      });
-
-      it("from negative USD", () => {
-        expect(formatNumber(-1234.56, options)).toBe("-1,234.56");
-      });
-
-      it("from negative USD represented with parentheses", () => {
-        expect(
-          formatNumber(-1234.56, { ...options, negativeInParentheses: true }),
-        ).toBe("(1,234.56)");
-      });
-
-      it("from positive JPY", () => {
-        expect(formatNumber(1234.56, { ...options, currency: "JPY" })).toBe(
-          "1,234.56",
-        );
-      });
-
-      it("from negative EUR", () => {
-        expect(formatNumber(-1234.56, { ...options, currency: "EUR" })).toBe(
-          "-1,234.56",
-        );
-      });
-
-      it("only with type: cell", () => {
-        expect(formatNumber(-1234.56, { ...options, type: undefined })).toBe(
-          "-$1,234.56",
-        );
-      });
-    });
-
     describe("in compact mode", () => {
       it("should format 0 as 0", () => {
         expect(formatNumber(0, { compact: true })).toEqual("0");
       });
-
       it("shouldn't display small numbers as 0", () => {
         expect(formatNumber(0.1, { compact: true })).toEqual("0.1");
-        expect(formatNumber(-0.1, { compact: true })).toEqual("-0.1");
+        expect(formatNumber(-0.1, { compact: true })).toEqual("−0.1");
         expect(formatNumber(0.01, { compact: true })).toEqual("0.01");
-        expect(formatNumber(-0.01, { compact: true })).toEqual("-0.01");
+        expect(formatNumber(-0.01, { compact: true })).toEqual("−0.01");
       });
-
       it("should round up and down", () => {
         expect(formatNumber(1.01, { compact: true })).toEqual("1.01");
-        expect(formatNumber(-1.01, { compact: true })).toEqual("-1.01");
+        expect(formatNumber(-1.01, { compact: true })).toEqual("−1.01");
         expect(formatNumber(1.9, { compact: true })).toEqual("1.9");
-        expect(formatNumber(-1.9, { compact: true })).toEqual("-1.9");
+        expect(formatNumber(-1.9, { compact: true })).toEqual("−1.9");
       });
-
       it("should format large numbers with metric units", () => {
         expect(formatNumber(1, { compact: true })).toEqual("1");
         expect(formatNumber(1000, { compact: true })).toEqual("1.0k");
         expect(formatNumber(1111, { compact: true })).toEqual("1.1k");
       });
-
       it("should format percentages", () => {
         const options = { compact: true, number_style: "percent" };
         expect(formatNumber(0.867, { number_style: "percent" })).toEqual(
@@ -164,9 +127,8 @@ describe("formatting", () => {
         expect(formatNumber(0.019, options)).toEqual("1.9%");
         expect(formatNumber(0.021, options)).toEqual("2.1%");
         expect(formatNumber(11.11, options)).toEqual("1.1k%");
-        expect(formatNumber(-0.22, options)).toEqual("-22%");
+        expect(formatNumber(-0.22, options)).toEqual("−22%");
       });
-
       it("should format scientific notation", () => {
         const options = { compact: true, number_style: "scientific" };
         expect(formatNumber(0, options)).toEqual("0.0e+0");
@@ -176,7 +138,6 @@ describe("formatting", () => {
         expect(formatNumber(123456.78, options)).toEqual("1.2e+5");
         expect(formatNumber(-123456.78, options)).toEqual("-1.2e+5");
       });
-
       it("should obey custom separators in scientific notiation", () => {
         const options = {
           compact: true,
@@ -190,7 +151,6 @@ describe("formatting", () => {
         expect(formatNumber(123456.78, options)).toEqual("1,2e+5");
         expect(formatNumber(-123456.78, options)).toEqual("-1,2e+5");
       });
-
       it("should format currency values", () => {
         const options = {
           compact: true,
@@ -204,7 +164,7 @@ describe("formatting", () => {
         expect(formatNumber(724.9, options)).toEqual("$724.90");
         expect(formatNumber(1234.56, options)).toEqual("$1.2k");
         expect(formatNumber(1234567.89, options)).toEqual("$1.2M");
-        expect(formatNumber(-1234567.89, options)).toEqual("$-1.2M");
+        expect(formatNumber(-1234567.89, options)).toEqual("-$1.2M");
         expect(
           formatNumber(1234567.89, { ...options, currency: "CNY" }),
         ).toEqual("CN¥1.2M");
@@ -213,7 +173,6 @@ describe("formatting", () => {
         ).toEqual("$1.2M");
       });
     });
-
     it("should format to correct number of decimal places", () => {
       expect(formatNumber(0.1)).toEqual("0.1");
       expect(formatNumber(0.11)).toEqual("0.11");
@@ -239,52 +198,44 @@ describe("formatting", () => {
           formatNumber(-1.23, { number_style: "currency", currency: "USD" }),
         ).toBe("-$1.23");
       });
-    });
 
-    describe("scientific notation", () => {
-      it("should format as strings normally", () => {
-        expect(formatNumber(0, { number_style: "scientific" })).toBe("0e+0");
-        expect(formatNumber(0.5, { number_style: "scientific" })).toBe("5e-1");
-        expect(formatNumber(0.54, { number_style: "scientific" })).toBe(
-          "5.4e-1",
-        );
-        expect(formatNumber(123456.78, { number_style: "scientific" })).toBe(
-          "1.23e+5",
-        );
-        expect(formatNumber(-123456.78, { number_style: "scientific" })).toBe(
-          "-1.23e+5",
-        );
-      });
-
-      describe("with jsx: true", () => {
-        it("should render using HTML <sup>", () => {
-          const { container } = render(
-            formatNumber(123456.78, {
-              number_style: "scientific",
-              jsx: true,
+      describe("with currency_in_header = true and type = cell", () => {
+        it("should handle positive currency", () => {
+          expect(
+            formatNumber(1.23, {
+              number_style: "currency",
+              currency: "USD",
+              currency_in_header: true,
+              type: "cell",
             }),
-          );
-          expect(container.innerHTML).toEqual(
-            "<span>1.23×10<sup>5</sup></span>",
-          );
+          ).toBe("1.23");
         });
 
-        it("should render using HTML <sup> for small values", () => {
-          const { container } = render(
-            formatNumber(0.000123456, {
-              number_style: "scientific",
-              jsx: true,
+        it("should handle negative currency", () => {
+          expect(
+            formatNumber(-1.23, {
+              number_style: "currency",
+              currency: "USD",
+              currency_in_header: true,
+              type: "cell",
             }),
-          );
-          expect(container.innerHTML).toEqual(
-            "<span>1.23×10<sup>-4</sup></span>",
-          );
+          ).toBe("-1.23");
         });
       });
     });
   });
 
   describe("formatValue", () => {
+    it("should return null on nullish values by default", () => {
+      expect(formatValue(null)).toEqual(null);
+      expect(formatValue(undefined)).toEqual(null);
+    });
+    it("should format null as (empty) when stringifyNull option is true", () => {
+      expect(formatValue(null, { stringifyNull: true })).toEqual("(empty)");
+      expect(formatValue(undefined, { stringifyNull: true })).toEqual(
+        "(empty)",
+      );
+    });
     it("should format numbers with null column", () => {
       expect(formatValue(12345)).toEqual("12345");
     });
@@ -314,11 +265,40 @@ describe("formatting", () => {
         }),
       ).toEqual("122.41940000° W");
     });
-    it("should return a component for links in jsx + rich mode", () => {
+    it("should return the component for external links in jsx + rich mode", () => {
       expect(
         isElementOfType(
           formatValue("http://metabase.com/", { jsx: true, rich: true }),
           ExternalLink,
+        ),
+      ).toEqual(true);
+    });
+    it("should return a component for internal links in jsx + rich mode", () => {
+      expect(
+        isElementOfType(formatValue(SITE_URL, { jsx: true, rich: true }), Link),
+      ).toBe(true);
+    });
+    it("should return a component for relative links in jsx + rich mode", () => {
+      const column = createMockColumn({
+        name: "column_name",
+        base_type: "type/Text",
+        effective_type: "type/Text",
+        semantic_type: "type/URL",
+      });
+      expect(
+        isElementOfType(
+          formatValue("/question/12", {
+            jsx: true,
+            rich: true,
+            view_as: "link",
+            link_url: "{{column_name}}",
+            clicked: {
+              value: "/question/12",
+              column: column,
+              data: [{ value: "question/12", col: column }],
+            },
+          }),
+          Link,
         ),
       ).toEqual(true);
     });
@@ -336,8 +316,8 @@ describe("formatting", () => {
       });
       // it's not actually a link
       expect(isElementOfType(formatted, ExternalLink)).toEqual(false);
-      // but it's formatted as a link
-      expect(formatted.props.className).toEqual("link link--wrappable");
+      // expect the text to be in a div (which has link formatting) rather than ExternalLink
+      expect(formatted.props["data-testid"]).toEqual("link-formatted-text");
     });
     it("should render image", () => {
       const formatted = formatValue("http://metabase.com/logo.png", {
@@ -566,8 +546,8 @@ describe("formatting", () => {
 
         // it is not a link set on the question level
         expect(isElementOfType(formatted, ExternalLink)).toEqual(false);
-        // it is formatted as a link cell for the dashboard level click behavior
-        expect(formatted.props.className).toEqual("link link--wrappable");
+        // expect the text to be in a div (which has link formatting) rather than ExternalLink
+        expect(formatted.props["data-testid"]).toEqual("link-formatted-text");
       });
     });
 
@@ -643,6 +623,26 @@ describe("formatting", () => {
         ),
       ).toEqual("6 AM");
     });
+
+    test.each([
+      ["minute", "Wed, April 27, 2022, 6:00 AM"],
+      ["hour", "Wed, April 27, 2022, 6:00 AM"],
+      ["day", "Wed, April 27, 2022"],
+      ["week", "Wed, April 27, 2022"],
+      ["month", "April 2022"],
+      ["year", "2022"],
+    ])(
+      "should include weekday when date unit is smaller or equal whan a week",
+      (unit, formatted) => {
+        const dateString = "2022-04-27T06:00:00.000Z";
+
+        expect(
+          formatDateTimeWithUnit(dateString, unit, {
+            weekday_enabled: true,
+          }),
+        ).toEqual(formatted);
+      },
+    );
   });
 
   describe("formatTime", () => {
@@ -659,12 +659,23 @@ describe("formatting", () => {
     ];
 
     test.each(FORMAT_TIME_TESTS)(
-      `parseTime(%p) to be %p`,
+      `formatTime(%p) to be %p`,
       (value, resultStr) => {
         const result = formatTime(value);
         expect(result).toBe(resultStr);
       },
     );
+
+    it("should use options when formatting times", () => {
+      const value = "20:34:56";
+      const t12 = formatTime(value, "default", {});
+      expect(t12).toBe("8:34 PM");
+      const t24 = formatTime(value, "default", {
+        time_enabled: "minutes",
+        time_style: "HH:mm",
+      });
+      expect(t24).toBe("20:34");
+    });
   });
 
   describe("formatTimeWithUnit", () => {

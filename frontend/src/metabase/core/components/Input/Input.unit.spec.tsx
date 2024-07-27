@@ -1,11 +1,11 @@
-import React from "react";
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+
 import Input from "./Input";
 
 describe("Input", () => {
-  it("should render icon tooltips when hover them", () => {
-    const { getByTestId, getByText } = render(
+  it("should render icon tooltips when hover them", async () => {
+    render(
       <Input
         leftIconTooltip="left tooltip"
         rightIconTooltip="right tooltip"
@@ -14,12 +14,12 @@ describe("Input", () => {
       />,
     );
 
-    const leftIcon = getByTestId("input-left-icon-button");
-    userEvent.hover(leftIcon);
-    expect(getByText("left tooltip")).toBeInTheDocument();
+    const leftIcon = screen.getByTestId("input-left-icon-button");
+    await userEvent.hover(leftIcon);
+    expect(screen.getByText("left tooltip")).toBeInTheDocument();
 
-    const rightIcon = getByTestId("input-right-icon-button");
-    userEvent.hover(rightIcon);
-    expect(getByText("right tooltip")).toBeInTheDocument();
+    const rightIcon = screen.getByTestId("input-right-icon-button");
+    await userEvent.hover(rightIcon);
+    expect(screen.getByText("right tooltip")).toBeInTheDocument();
   });
 });

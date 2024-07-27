@@ -1,13 +1,14 @@
-import React from "react";
+import cx from "classnames";
+import { useCallback, useMemo } from "react";
 
-import Icon from "metabase/components/Icon";
 import AccordionList from "metabase/core/components/AccordionList";
-import type { Database } from "metabase-types/api/database";
-import DataSelectorLoading from "../DataSelectorLoading";
+import CS from "metabase/css/core/index.css";
+import { Icon } from "metabase/ui";
+import type Database from "metabase-lib/v1/metadata/Database";
+import type Schema from "metabase-lib/v1/metadata/Schema";
 
 import { RawDataBackButton } from "../DataSelector.styled";
-
-import type { Schema } from "../types";
+import DataSelectorLoading from "../DataSelectorLoading";
 
 type DataSelectorDatabasePickerProps = {
   databases: Database[];
@@ -24,13 +25,14 @@ type DataSelectorDatabasePickerProps = {
 };
 
 type Item = {
-  database: Database;
-  index: number;
   name: string;
+  index: number;
+  database: Database;
 };
 
 type Section = {
-  items: Item[];
+  name?: JSX.Element;
+  items?: Item[];
 };
 
 const DataSelectorDatabasePicker = ({
@@ -41,38 +43,44 @@ const DataSelectorDatabasePicker = ({
   onBack,
   hasInitialFocus,
 }: DataSelectorDatabasePickerProps) => {
-  if (databases.length === 0) {
-    return <DataSelectorLoading />;
-  }
+  const sections = useMemo(() => {
+    const sections: Section[] = [];
 
-  const sections: Section[] = [
-    {
-      items: databases.map((database: Database, index: number) => ({
+    if (onBack) {
+      sections.push({ name: <RawDataBackButton /> });
+    }
+
+    sections.push({
+      items: databases.map((database, index) => ({
         name: database.name,
         index,
-        database: database,
+        database,
       })),
+    });
+
+    return sections;
+  }, [databases, onBack]);
+
+  const handleChangeSection = useCallback(
+    (section: Section, sectionIndex: number) => {
+      const isNavigationSection = onBack && sectionIndex === 0;
+      if (isNavigationSection) {
+        onBack();
+      }
+      return false;
     },
-  ];
+    [onBack],
+  );
 
-  const handleChangeSection = (_section: Section, sectionIndex: number) => {
-    const isNavigationSection = onBack && sectionIndex === 0;
-
-    if (isNavigationSection) {
-      onBack();
-    }
-    return false;
-  };
-
-  if (onBack) {
-    sections.unshift({ name: <RawDataBackButton /> } as any);
+  if (databases.length === 0) {
+    return <DataSelectorLoading />;
   }
 
   return (
     <AccordionList
       id="DatabasePicker"
       key="databasePicker"
-      className="text-brand"
+      className={CS.textBrand}
       hasInitialFocus={hasInitialFocus}
       sections={sections}
       onChange={(item: Item) => onChangeDatabase(item.database)}
@@ -81,11 +89,16 @@ const DataSelectorDatabasePicker = ({
         selectedDatabase && item.database.id === selectedDatabase.id
       }
       renderItemIcon={() => (
-        <Icon className="Icon text-default" name="database" size={18} />
+        <Icon
+          className={cx("Icon", CS.textDefault)}
+          name="database"
+          size={18}
+        />
       )}
       showItemArrows={hasNextStep}
     />
   );
 };
 
+// eslint-disable-next-line import/no-default-export -- deprecated usage
 export default DataSelectorDatabasePicker;

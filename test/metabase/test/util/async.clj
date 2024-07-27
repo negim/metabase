@@ -1,6 +1,8 @@
-(ns metabase.test.util.async
+(ns ^{:added "0.50.0"} metabase.test.util.async
   (:require
    [clojure.core.async :as a]))
+
+(set! *warn-on-reflection* true)
 
 (defmacro with-open-channels
   "Like [[with-open]], but closes core.async channels at the conclusion of `body`."
@@ -21,10 +23,12 @@
   ([chan]
    (wait-for-result chan 200))
   ([chan timeout-ms]
+   (wait-for-result chan timeout-ms ::timed-out))
+  ([chan timeout-ms timed-out-val]
    (try
-     (let [[val port] (a/alts!! [chan (a/timeout timeout-ms)])]
+     (let [[val port] (a/alts!! [chan (a/timeout timeout-ms)] :priority true)]
        (if (not= port chan)
-         ::timed-out
+         timed-out-val
          val))
      (finally
        (a/close! chan)))))

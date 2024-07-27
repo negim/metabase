@@ -1,43 +1,60 @@
-import React, { useEffect, useMemo } from "react";
+import type { LocationDescriptor } from "history";
+import { useEffect, useMemo } from "react";
 import { connect } from "react-redux";
 import { push } from "react-router-redux";
-import { LocationDescriptor } from "history";
+import _ from "underscore";
 
-import { closeNavbar, openNavbar } from "metabase/redux/app";
-
-import { getQuestion } from "metabase/query_builder/selectors";
+import { skipToken, useGetCollectionQuery } from "metabase/api";
+import { useQuestionQuery } from "metabase/common/hooks";
 import { getDashboard } from "metabase/dashboard/selectors";
-
-import type { Dashboard } from "metabase-types/api";
+import * as Urls from "metabase/lib/urls";
+import { closeNavbar, openNavbar } from "metabase/redux/app";
+import type Question from "metabase-lib/v1/Question";
+import type { CollectionId, Dashboard } from "metabase-types/api";
 import type { State } from "metabase-types/store";
-import type Question from "metabase-lib/Question";
 
+import { NavRoot, Sidebar } from "./MainNavbar.styled";
 import MainNavbarContainer from "./MainNavbarContainer";
-
-import {
-  MainNavbarProps,
+import getSelectedItems, {
+  isCollectionPath,
+  isModelPath,
+  isQuestionPath,
+  isMetricPath,
+} from "./getSelectedItems";
+import type {
   MainNavbarOwnProps,
   MainNavbarDispatchProps,
   SelectedItem,
 } from "./types";
-import getSelectedItems from "./getSelectedItems";
-import { NavRoot, Sidebar } from "./MainNavbar.styled";
 
-interface StateProps {
+interface EntityLoaderProps {
   question?: Question;
-  dashboard?: Dashboard;
 }
 
-interface DispatchProps {
+interface StateProps {
+  dashboard?: Dashboard;
+  questionId?: number;
+  collectionId?: CollectionId;
+}
+
+interface DispatchProps extends MainNavbarDispatchProps {
   onChangeLocation: (location: LocationDescriptor) => void;
 }
 
-type Props = MainNavbarProps & StateProps & DispatchProps;
+type Props = MainNavbarOwnProps &
+  EntityLoaderProps &
+  StateProps &
+  DispatchProps;
 
-function mapStateToProps(state: State) {
+function mapStateToProps(state: State, props: MainNavbarOwnProps) {
   return {
-    question: getQuestion(state),
+    // Can't use dashboard entity loader instead.
+    // The dashboard page uses DashboardsApi.get directly,
+    // so we can't re-use data between these components.
     dashboard: getDashboard(state),
+
+    questionId: maybeGetQuestionId(state, props),
+    collectionId: maybeGetCollectionId(state, props),
   };
 }
 
@@ -51,13 +68,22 @@ function MainNavbar({
   isOpen,
   location,
   params,
-  question,
+  questionId,
+  collectionId,
   dashboard,
   openNavbar,
   closeNavbar,
   onChangeLocation,
   ...props
 }: Props) {
+  const { data: question } = useQuestionQuery({
+    id: questionId,
+  });
+
+  const { data: collection } = useGetCollectionQuery(
+    collectionId ? { id: collectionId } : skipToken,
+  );
+
   useEffect(() => {
     function handleSidebarKeyboardShortcut(e: KeyboardEvent) {
       if (e.key === "." && (e.ctrlKey || e.metaKey)) {
@@ -81,13 +107,19 @@ function MainNavbar({
         pathname: location.pathname,
         params,
         question,
+        collection,
         dashboard,
       }),
-    [location, params, question, dashboard],
+    [location, params, question, dashboard, collection],
   );
 
   return (
-    <Sidebar className="Nav" isOpen={isOpen} aria-hidden={!isOpen}>
+    <Sidebar
+      isOpen={isOpen}
+      aria-hidden={!isOpen}
+      data-testid="main-navbar-root"
+      data-element-id="navbar-root"
+    >
       <NavRoot isOpen={isOpen}>
         <MainNavbarContainer
           isOpen={isOpen}
@@ -104,12 +136,26 @@ function MainNavbar({
   );
 }
 
-export default connect<
-  StateProps,
-  MainNavbarDispatchProps & DispatchProps,
-  MainNavbarOwnProps,
-  State
->(
-  mapStateToProps,
-  mapDispatchToProps,
-)(MainNavbar);
+function maybeGetQuestionId(
+  state: State,
+  { location, params }: MainNavbarOwnProps,
+) {
+  const { pathname } = location;
+  const canFetchQuestion =
+    isQuestionPath(pathname) || isModelPath(pathname) || isMetricPath(pathname);
+  return canFetchQuestion ? Urls.extractEntityId(params.slug) : null;
+}
+
+function maybeGetCollectionId(
+  state: State,
+  { location, params }: MainNavbarOwnProps,
+) {
+  const { pathname } = location;
+  const canFetchQuestion = isCollectionPath(pathname);
+  return canFetchQuestion ? Urls.extractEntityId(params.slug) : null;
+}
+
+// eslint-disable-next-line import/no-default-export -- deprecated usage
+export default _.compose(connect(mapStateToProps, mapDispatchToProps))(
+  MainNavbar,
+);

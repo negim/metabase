@@ -1,50 +1,54 @@
-import React, { useCallback } from "react";
 import cx from "classnames";
-import { t } from "ttag";
-import { connect } from "react-redux";
 import type { LocationDescriptor } from "history";
+import { useCallback, useMemo } from "react";
+import { t } from "ttag";
 
-import { IconProps } from "metabase/components/Icon";
-
+import CS from "metabase/css/core/index.css";
+import { useClickBehaviorData } from "metabase/dashboard/hooks";
+import {
+  getVirtualCardType,
+  isQuestionCard,
+  isVirtualDashCard,
+} from "metabase/dashboard/utils";
+import { useSelector } from "metabase/lib/redux";
+import { isJWT } from "metabase/lib/utils";
+import { isUuid } from "metabase/lib/uuid";
+import { getMetadata } from "metabase/selectors/metadata";
+import type { IconName, IconProps } from "metabase/ui";
+import { getVisualizationRaw } from "metabase/visualizations";
+import type { Mode } from "metabase/visualizations/click-actions/Mode";
 import Visualization from "metabase/visualizations/components/Visualization";
-import WithVizSettingsData from "metabase/visualizations/hoc/WithVizSettingsData";
-
-import QueryDownloadWidget from "metabase/query_builder/components/QueryDownloadWidget";
-
-import { isVirtualDashCard } from "metabase/dashboard/utils";
-
+import type { QueryClickActionsMode } from "metabase/visualizations/types";
+import Question from "metabase-lib/v1/Question";
 import type {
   Dashboard,
-  DashboardOrderedCard,
   DashCardId,
+  Dataset,
+  Series,
+  VirtualCardDisplay,
   VisualizationSettings,
+  DashboardCard,
 } from "metabase-types/api";
-import type {
-  ParameterId,
-  ParameterValueOrArray,
-} from "metabase-types/types/Parameter";
-import type { Series } from "metabase-types/types/Visualization";
-import type { Dispatch } from "metabase-types/store";
 
-import type Mode from "metabase-lib/Mode";
-import type Metadata from "metabase-lib/metadata/Metadata";
-
-import { CardSlownessStatus, DashCardOnChangeCardAndRunHandler } from "./types";
-import ClickBehaviorSidebarOverlay from "./ClickBehaviorSidebarOverlay";
-import DashCardParameterMapper from "./DashCardParameterMapper";
+import { ClickBehaviorSidebarOverlay } from "./ClickBehaviorSidebarOverlay/ClickBehaviorSidebarOverlay";
 import {
   VirtualDashCardOverlayRoot,
   VirtualDashCardOverlayText,
 } from "./DashCard.styled";
+import { DashCardMenu } from "./DashCardMenu/DashCardMenu";
+import { DashCardParameterMapper } from "./DashCardParameterMapper/DashCardParameterMapper";
+import type {
+  CardSlownessStatus,
+  DashCardOnChangeCardAndRunHandler,
+} from "./types";
+import { shouldShowParameterMapper } from "./utils";
 
 interface DashCardVisualizationProps {
   dashboard: Dashboard;
-  dashcard: DashboardOrderedCard;
+  dashcard: DashboardCard;
   series: Series;
-  parameterValues: Record<ParameterId, ParameterValueOrArray>;
-  parameterValuesBySlug: Record<string, ParameterValueOrArray>;
-  metadata: Metadata;
-  mode?: Mode;
+  mode?: QueryClickActionsMode | Mode;
+  getHref?: () => string | undefined;
 
   gridSize: {
     width: number;
@@ -56,6 +60,7 @@ interface DashCardVisualizationProps {
   expectedDuration: number;
   isSlow: CardSlownessStatus;
 
+  isAction: boolean;
   isPreviewing: boolean;
   isEmbed: boolean;
   isClickBehaviorSidebarOpen: boolean;
@@ -66,43 +71,46 @@ interface DashCardVisualizationProps {
   isFullscreen?: boolean;
   isMobile?: boolean;
   isNightMode?: boolean;
+  /** If public sharing or static/public embed */
+  isPublicOrEmbedded?: boolean;
+  isXray?: boolean;
+  withTitle?: boolean;
 
-  error?: { message?: string; icon?: IconProps["name"] };
+  error?: { message?: string; icon?: IconName };
   headerIcon?: IconProps;
 
-  onUpdateVisualizationSettings: (settings: VisualizationSettings) => void;
+  onUpdateVisualizationSettings: (
+    id: DashCardId,
+    settings: VisualizationSettings,
+  ) => void;
   onChangeCardAndRun: DashCardOnChangeCardAndRunHandler | null;
   showClickBehaviorSidebar: (dashCardId: DashCardId | null) => void;
   onChangeLocation: (location: LocationDescriptor) => void;
-}
 
-function mapDispatchToProps(dispatch: Dispatch) {
-  return { dispatch };
+  downloadsEnabled: boolean;
 }
 
 // This is done to add the `getExtraDataForClick` prop.
 // We need that to pass relevant data along with the clicked object.
-const WrappedVisualization = WithVizSettingsData(
-  connect(null, mapDispatchToProps)(Visualization),
-);
 
-function DashCardVisualization({
+export function DashCardVisualization({
   dashcard,
   dashboard,
   series,
-  parameterValues,
-  parameterValuesBySlug,
   mode,
-  metadata,
+  getHref,
   gridSize,
   gridItemWidth,
   totalNumGridCols,
   expectedDuration,
   error,
   headerIcon,
+  isAction,
   isSlow,
   isPreviewing,
   isEmbed,
+  isPublicOrEmbedded,
+  isXray,
   isEditingDashboardLayout,
   isClickBehaviorSidebarOpen,
   isEditingDashCardClickBehavior,
@@ -111,20 +119,49 @@ function DashCardVisualization({
   isFullscreen = false,
   isMobile = false,
   isEditingParameter,
+  withTitle = true,
   onChangeCardAndRun,
   showClickBehaviorSidebar,
   onChangeLocation,
   onUpdateVisualizationSettings,
+  downloadsEnabled,
 }: DashCardVisualizationProps) {
-  const renderVisualizationOverlay = useCallback(() => {
+  const metadata = useSelector(getMetadata);
+  const question = useMemo(() => {
+    return isQuestionCard(dashcard.card)
+      ? new Question(dashcard.card, metadata)
+      : null;
+  }, [dashcard.card, metadata]);
+
+  const handleOnUpdateVisualizationSettings = useCallback(
+    (settings: VisualizationSettings) => {
+      onUpdateVisualizationSettings(dashcard.id, settings);
+    },
+    [dashcard.id, onUpdateVisualizationSettings],
+  );
+
+  const visualizationOverlay = useMemo(() => {
     if (isClickBehaviorSidebarOpen) {
-      if (isVirtualDashCard(dashcard)) {
-        const isTextCard =
-          dashcard?.visualization_settings?.virtual_card?.display === "text";
+      const disableClickBehavior =
+        getVisualizationRaw(series)?.disableClickBehavior;
+      if (isVirtualDashCard(dashcard) || disableClickBehavior) {
+        const virtualDashcardType = getVirtualCardType(
+          dashcard,
+        ) as VirtualCardDisplay;
+        const placeholderText =
+          {
+            link: t`Link`,
+            action: t`Action Button`,
+            text: t`Text Card`,
+            heading: t`Heading Card`,
+            placeholder: t`Placeholder Card`,
+          }[virtualDashcardType] ??
+          t`This card does not support click mappings`;
+
         return (
           <VirtualDashCardOverlayRoot>
             <VirtualDashCardOverlayText>
-              {isTextCard ? t`Text card` : t`Action button`}
+              {placeholderText}
             </VirtualDashCardOverlayText>
           </VirtualDashCardOverlayRoot>
         );
@@ -139,7 +176,7 @@ function DashCardVisualization({
       );
     }
 
-    if (isEditingParameter) {
+    if (shouldShowParameterMapper({ dashcard, isEditingParameter })) {
       return (
         <DashCardParameterMapper dashcard={dashcard} isMobile={isMobile} />
       );
@@ -154,52 +191,83 @@ function DashCardVisualization({
     isClickBehaviorSidebarOpen,
     isEditingDashCardClickBehavior,
     showClickBehaviorSidebar,
+    series,
   ]);
 
-  const renderActionButtons = useCallback(() => {
-    if (isEmbed) {
-      return (
-        <QueryDownloadWidget
-          className="m1 text-brand-hover text-light"
-          classNameClose="hover-child"
-          card={dashcard.card}
-          params={parameterValuesBySlug}
-          dashcardId={dashcard.id}
-          token={dashcard.dashboard_id}
-          icon="download"
-          // Can be removed once QueryDownloadWidget is converted to Typescript
-          visualizationSettings={undefined}
-        />
-      );
+  const actionButtons = useMemo(() => {
+    if (!question) {
+      return null;
     }
-    return null;
-  }, [dashcard, parameterValuesBySlug, isEmbed]);
+
+    const mainSeries = series[0] as unknown as Dataset;
+    const shouldShowDashCardMenu = DashCardMenu.shouldRender({
+      question,
+      result: mainSeries,
+      isXray,
+      isPublicOrEmbedded,
+      isEditing,
+      downloadsEnabled,
+    });
+
+    if (!shouldShowDashCardMenu) {
+      return null;
+    }
+
+    return (
+      <DashCardMenu
+        downloadsEnabled={downloadsEnabled}
+        question={question}
+        result={mainSeries}
+        dashcardId={dashcard.id}
+        dashboardId={dashboard.id}
+        token={
+          isJWT(dashcard.dashboard_id)
+            ? String(dashcard.dashboard_id)
+            : undefined
+        }
+        uuid={isUuid(dashcard.dashboard_id) ? dashcard.dashboard_id : undefined}
+      />
+    );
+  }, [
+    question,
+    series,
+    isXray,
+    isPublicOrEmbedded,
+    isEditing,
+    dashcard.id,
+    dashcard.dashboard_id,
+    dashboard.id,
+    downloadsEnabled,
+  ]);
+
+  const { getExtraDataForClick } = useClickBehaviorData({
+    dashcardId: dashcard.id,
+  });
 
   return (
-    <WrappedVisualization
-      // Visualization has to be converted to TypeScript before we can remove the ts-ignore
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      className={cx("flex-full overflow-hidden", {
-        "pointer-events-none": isEditingDashboardLayout,
+    <Visualization
+      className={cx(CS.flexFull, {
+        [CS.pointerEventsNone]: isEditingDashboardLayout,
+        [CS.overflowAuto]: visualizationOverlay,
+        [CS.overflowHidden]: !visualizationOverlay,
       })}
       classNameWidgets={cx({
-        "text-light text-medium-hover": isEmbed,
+        [cx(CS.textLight, CS.textMediumHover)]: isEmbed,
       })}
       dashboard={dashboard}
       dashcard={dashcard}
       rawSeries={series}
-      parameterValues={parameterValues}
-      parameterValuesBySlug={parameterValuesBySlug}
       metadata={metadata}
       mode={mode}
+      getHref={getHref}
       gridSize={gridSize}
       totalNumGridCols={totalNumGridCols}
       headerIcon={headerIcon}
       expectedDuration={expectedDuration}
       error={error?.message}
       errorIcon={error?.icon}
-      showTitle
+      showTitle={withTitle}
+      isAction={isAction}
       isDashboard
       isSlow={isSlow}
       isFullscreen={isFullscreen}
@@ -208,13 +276,12 @@ function DashCardVisualization({
       isPreviewing={isPreviewing}
       isEditingParameter={isEditingParameter}
       isMobile={isMobile}
-      actionButtons={renderActionButtons()}
-      replacementContent={renderVisualizationOverlay()}
-      onUpdateVisualizationSettings={onUpdateVisualizationSettings}
+      actionButtons={actionButtons}
+      replacementContent={visualizationOverlay}
+      getExtraDataForClick={getExtraDataForClick}
+      onUpdateVisualizationSettings={handleOnUpdateVisualizationSettings}
       onChangeCardAndRun={onChangeCardAndRun}
       onChangeLocation={onChangeLocation}
     />
   );
 }
-
-export default DashCardVisualization;

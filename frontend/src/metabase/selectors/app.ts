@@ -1,35 +1,39 @@
-import { Location } from "history";
-import { createSelector } from "reselect";
-import { t } from "ttag";
-import { getUser, getUserIsAdmin } from "metabase/selectors/user";
+import type { Selector } from "@reduxjs/toolkit";
+import { createSelector } from "@reduxjs/toolkit";
+import type { Location } from "history";
+
 import {
   getIsEditing as getIsEditingDashboard,
   getDashboard,
   getDashboardId,
 } from "metabase/dashboard/selectors";
 import {
-  getOriginalQuestion,
+  getIsSavedQuestionChanged,
   getQuestion,
 } from "metabase/query_builder/selectors";
 import { getEmbedOptions, getIsEmbedded } from "metabase/selectors/embed";
-import { State } from "metabase-types/store";
+import { getUser } from "metabase/selectors/user";
+import type { State } from "metabase-types/store";
+
+import { getSetting } from "./settings";
 
 export interface RouterProps {
   location: Location;
 }
 
-const HOMEPAGE_PATH = /^\/$/;
 const PATHS_WITHOUT_NAVBAR = [
+  /^\/setup/,
+  /^\/auth/,
   /\/model\/.*\/query/,
   /\/model\/.*\/metadata/,
   /\/model\/query/,
   /\/model\/metadata/,
+  /\/metric\/.*\/query/,
+  /\/metric\/.*\/metadata/,
+  /\/metric\/query/,
+  /\/metric\/metadata/,
 ];
-const EMBEDDED_PATHS_WITH_NAVBAR = [
-  HOMEPAGE_PATH,
-  /^\/collection\/.*/,
-  /^\/archive/,
-];
+
 const PATHS_WITH_COLLECTION_BREADCRUMBS = [
   /\/question\//,
   /\/model\//,
@@ -38,54 +42,36 @@ const PATHS_WITH_COLLECTION_BREADCRUMBS = [
 const PATHS_WITH_QUESTION_LINEAGE = [/\/question/, /\/model/];
 
 export const getRouterPath = (state: State, props: RouterProps) => {
-  return props.location.pathname;
+  return props?.location?.pathname ?? window.location.pathname;
 };
 
 export const getRouterHash = (state: State, props: RouterProps) => {
-  return props.location.hash;
+  return props?.location?.hash ?? window.location.hash;
 };
 
 export const getIsAdminApp = createSelector([getRouterPath], path => {
   return path.startsWith("/admin/");
 });
 
-export const getIsAppBarVisible = createSelector(
-  [
-    getUser,
-    getRouterPath,
-    getRouterHash,
-    getIsAdminApp,
-    getIsEditingDashboard,
-    getIsEmbedded,
-    getEmbedOptions,
-  ],
-  (
-    currentUser,
-    path,
-    hash,
-    isAdminApp,
-    isEditingDashboard,
-    isEmbedded,
-    embedOptions,
-  ) => {
-    const isFullscreen = hash.includes("fullscreen");
-    const allEmbeddedAppBarElementsHidden =
-      !embedOptions.search &&
-      !embedOptions.new_button &&
-      !embedOptions.breadcrumbs;
-    const isEmbeddedAppBarHidden =
-      !embedOptions.top_nav || allEmbeddedAppBarElementsHidden;
-    if (
-      !currentUser ||
-      (isEmbedded && isEmbeddedAppBarHidden) ||
-      isAdminApp ||
-      isEditingDashboard ||
-      isFullscreen
-    ) {
+export const getIsCollectionPathVisible = createSelector(
+  [getQuestion, getDashboard, getRouterPath, getIsEmbedded, getEmbedOptions],
+  (question, dashboard, path, isEmbedded, embedOptions) => {
+    if (isEmbedded && !embedOptions.breadcrumbs) {
       return false;
     }
-    return !PATHS_WITHOUT_NAVBAR.some(pattern => pattern.test(path));
+
+    return (
+      ((question != null && question.isSaved()) || dashboard != null) &&
+      PATHS_WITH_COLLECTION_BREADCRUMBS.some(pattern => pattern.test(path))
+    );
   },
+);
+
+export const getIsQuestionLineageVisible = createSelector(
+  [getIsSavedQuestionChanged, getRouterPath],
+  (isSavedQuestionChanged, path) =>
+    isSavedQuestionChanged &&
+    PATHS_WITH_QUESTION_LINEAGE.some(pattern => pattern.test(path)),
 );
 
 export const getIsNavBarEnabled = createSelector(
@@ -103,10 +89,73 @@ export const getIsNavBarEnabled = createSelector(
     if (isEmbedded && !embedOptions.side_nav) {
       return false;
     }
-    if (isEmbedded && embedOptions.side_nav === "default") {
-      return EMBEDDED_PATHS_WITH_NAVBAR.some(pattern => pattern.test(path));
+
+    return !PATHS_WITHOUT_NAVBAR.some(pattern => pattern.test(path));
+  },
+);
+
+const getIsEmbeddedAppBarVisible = createSelector(
+  [
+    getEmbedOptions,
+    getIsQuestionLineageVisible,
+    getIsCollectionPathVisible,
+    getIsNavBarEnabled,
+  ],
+  (
+    embedOptions,
+    isQuestionLineageVisible,
+    isCollectionPathVisible,
+    isNavBarEnabled,
+  ) => {
+    const anyEmbeddedAppBarElementVisible =
+      isNavBarEnabled ||
+      embedOptions.search ||
+      embedOptions.new_button ||
+      embedOptions.logo ||
+      isQuestionLineageVisible ||
+      isCollectionPathVisible;
+    return embedOptions.top_nav && anyEmbeddedAppBarElementVisible;
+  },
+);
+
+export const getIsAppBarVisible = createSelector(
+  [
+    getUser,
+    getRouterPath,
+    getRouterHash,
+    getIsAdminApp,
+    getIsEditingDashboard,
+    getIsEmbedded,
+    getIsEmbeddedAppBarVisible,
+  ],
+  (
+    currentUser,
+    path,
+    hash,
+    isAdminApp,
+    isEditingDashboard,
+    isEmbedded,
+    isEmbeddedAppBarVisible,
+  ) => {
+    const isFullscreen = hash.includes("fullscreen");
+
+    if (
+      !currentUser ||
+      (isEmbedded && !isEmbeddedAppBarVisible) ||
+      isAdminApp ||
+      isEditingDashboard ||
+      isFullscreen
+    ) {
+      return false;
     }
     return !PATHS_WITHOUT_NAVBAR.some(pattern => pattern.test(path));
+  },
+);
+
+export const getIsLogoVisible = createSelector(
+  [getIsEmbedded, getEmbedOptions],
+  (isEmbedded, embedOptions) => {
+    return !isEmbedded || embedOptions.logo;
   },
 );
 
@@ -144,26 +193,33 @@ export const getCollectionId = createSelector(
     dashboardId ? dashboard?.collection_id : question?.collectionId(),
 );
 
-export const getIsCollectionPathVisible = createSelector(
-  [getQuestion, getDashboard, getRouterPath, getIsEmbedded, getEmbedOptions],
-  (question, dashboard, path, isEmbedded, embedOptions) => {
-    if (isEmbedded && !embedOptions.breadcrumbs) {
-      return false;
+export const getIsNavbarOpen: Selector<State, boolean> = createSelector(
+  [
+    getIsEmbedded,
+    getEmbedOptions,
+    getIsAppBarVisible,
+    (state: State) => state.app.isNavbarOpen,
+  ],
+  (isEmbedded, embedOptions, isAppBarVisible, isNavbarOpen) => {
+    // in an embedded instance, when the app bar is hidden, but the nav bar is not
+    // we need to force the sidebar to be open or else it will be totally inaccessible
+    if (isEmbedded && embedOptions.side_nav === true && !isAppBarVisible) {
+      return true;
     }
 
-    return (
-      ((question != null && question.isSaved()) || dashboard != null) &&
-      PATHS_WITH_COLLECTION_BREADCRUMBS.some(pattern => pattern.test(path))
-    );
+    return isNavbarOpen;
   },
 );
 
-export const getIsQuestionLineageVisible = createSelector(
-  [getQuestion, getOriginalQuestion, getRouterPath],
-  (question, originalQuestion, path) =>
-    question != null &&
-    !question.isSaved() &&
-    originalQuestion != null &&
-    !originalQuestion.isDataset() &&
-    PATHS_WITH_QUESTION_LINEAGE.some(pattern => pattern.test(path)),
+export const getIsDndAvailable = (state: State) => {
+  return state.app.isDndAvailable;
+};
+
+export const getCustomHomePageDashboardId = createSelector(
+  [getUser],
+  user => user?.custom_homepage?.dashboard_id || null,
 );
+
+export const getHasDismissedCustomHomePageToast = (state: State) => {
+  return getSetting(state, "dismissed-custom-dashboard-toast");
+};

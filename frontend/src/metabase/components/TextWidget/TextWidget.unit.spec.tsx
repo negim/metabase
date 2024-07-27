@@ -1,8 +1,8 @@
-import React, { useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { act } from "react-dom/test-utils";
-import TextWidget from "./TextWidget";
+import { useState } from "react";
+
+import { TextWidget } from "./TextWidget";
 
 const TextInputWithStateWrapper = ({ value }: { value?: number | string }) => {
   const [val, setVal] = useState<number | string | null>(value ?? "");

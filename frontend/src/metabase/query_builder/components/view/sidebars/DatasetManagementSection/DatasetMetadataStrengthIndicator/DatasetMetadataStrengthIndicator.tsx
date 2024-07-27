@@ -1,12 +1,11 @@
-import React from "react";
+import { useRef } from "react";
+import { useHoverDirty } from "react-use";
 import { t } from "ttag";
 
-import Tooltip from "metabase/components/Tooltip";
-
 import { color } from "metabase/lib/colors";
-import { useHover } from "metabase/hooks/use-hover";
-import Question from "metabase-lib/Question";
-import { getDatasetMetadataCompletenessPercentage } from "metabase-lib/metadata/utils/models";
+import { Tooltip } from "metabase/ui";
+import type Question from "metabase-lib/v1/Question";
+import { getDatasetMetadataCompletenessPercentage } from "metabase-lib/v1/metadata/utils/models";
 
 import {
   Root,
@@ -34,7 +33,7 @@ function getTooltipMessage(percentage: number) {
     percentage <= 0.5 ? t`Most` : percentage >= 0.8 ? t`Some` : t`Many`;
 
   return (
-    <TooltipContent>
+    <TooltipContent data-testid="tooltip-content">
       <TooltipParagraph>
         {t`${columnCountDescription} columns are missing a column type, description, or friendly name.`}
       </TooltipParagraph>
@@ -53,10 +52,11 @@ type Props = {
   dataset: Question;
 };
 
-const TOOLTIP_DELAY: [number, null] = [700, null];
+const TOOLTIP_DELAY = 700;
 
 function DatasetMetadataStrengthIndicator({ dataset, ...props }: Props) {
-  const [hoverRef, isHovered] = useHover<HTMLDivElement>();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const isHovering = useHoverDirty(rootRef);
   const resultMetadata = dataset.getResultMetadata();
 
   if (!Array.isArray(resultMetadata) || resultMetadata.length === 0) {
@@ -64,14 +64,14 @@ function DatasetMetadataStrengthIndicator({ dataset, ...props }: Props) {
   }
 
   const percentage = getDatasetMetadataCompletenessPercentage(resultMetadata);
-  const indicationColor = getIndicationColor(percentage, isHovered);
+  const indicationColor = getIndicationColor(percentage, isHovering);
 
   return (
-    <Root {...props} ref={hoverRef}>
+    <Root {...props} ref={rootRef}>
       <Tooltip
-        tooltip={getTooltipMessage(percentage)}
-        delay={TOOLTIP_DELAY}
-        placement="bottom"
+        label={getTooltipMessage(percentage)}
+        openDelay={TOOLTIP_DELAY}
+        position="bottom"
       >
         <PercentageLabel
           color={indicationColor}
@@ -84,4 +84,5 @@ function DatasetMetadataStrengthIndicator({ dataset, ...props }: Props) {
   );
 }
 
+// eslint-disable-next-line import/no-default-export -- deprecated usage
 export default Object.assign(DatasetMetadataStrengthIndicator, { Root });

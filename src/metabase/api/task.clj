@@ -7,14 +7,14 @@
    [metabase.models.task-history :as task-history :refer [TaskHistory]]
    [metabase.server.middleware.offset-paging :as mw.offset-paging]
    [metabase.task :as task]
-   [toucan.db :as db]))
-
+   [metabase.util.malli.schema :as ms]
+   [toucan2.core :as t2]))
 
 (api/defendpoint GET "/"
   "Fetch a list of recent tasks stored as Task History"
   []
   (validation/check-has-application-permission :monitoring)
-  {:total  (db/count TaskHistory)
+  {:total  (t2/count TaskHistory)
    :limit  mw.offset-paging/*limit*
    :offset mw.offset-paging/*offset*
    :data   (task-history/all mw.offset-paging/*limit* mw.offset-paging/*offset*)})
@@ -22,6 +22,7 @@
 (api/defendpoint GET "/:id"
   "Get `TaskHistory` entry with ID."
   [id]
+  {id ms/PositiveInt}
   (api/check-404 (api/read-check TaskHistory id)))
 
 (api/defendpoint GET "/info"
@@ -29,6 +30,5 @@
   []
   (validation/check-has-application-permission :monitoring)
   (task/scheduler-info))
-
 
 (api/define-routes)

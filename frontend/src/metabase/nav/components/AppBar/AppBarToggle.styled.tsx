@@ -1,13 +1,38 @@
+import { css } from "@emotion/react";
 import styled from "@emotion/styled";
-import { color } from "metabase/lib/colors";
-import Icon from "metabase/components/Icon";
 
-export const SidebarButton = styled.button`
+import { Icon } from "metabase/ui";
+
+interface SidebarButtonProps {
+  isSmallAppBar?: boolean;
+  isNavBarEnabled?: boolean;
+  isLogoVisible?: boolean;
+}
+
+export const SidebarButton = styled.button<SidebarButtonProps>`
   cursor: pointer;
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  padding: ${({ isSmallAppBar }) => (isSmallAppBar ? `0.5rem 0` : `1rem 0`)};
 `;
 
-export const SidebarIcon = styled(Icon)`
-  color: ${color("brand")};
+interface SidebarIconProps {
+  isLogoVisible?: boolean;
+}
+
+export const SidebarIcon = styled(Icon)<SidebarIconProps>`
+  color: var(--mb-color-brand);
   display: block;
+
+  ${props =>
+    !props.isLogoVisible &&
+    css`
+      color: var(--mb-color-text-medium);
+
+      &:hover {
+        color: var(--mb-color-brand);
+      }
+    `}
 `;
